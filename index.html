@@ -71,6 +71,91 @@
       <div class="outer">
         <section id="main">
   
+    <article id="post-gost 工作原理和实现架构" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/blog/2026/02/13/gost%20%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0%E6%9E%B6%E6%9E%84/" class="article-date">
+  <time class="dt-published" datetime="2026-02-13T14:40:00.000Z" itemprop="datePublished">2026-02-13</time>
+</a>
+    
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="p-name article-title" href="/blog/2026/02/13/gost%20%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0%E6%9E%B6%E6%9E%84/">gost 工作原理和实现架构</a>
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <p>在 GOST 的架构设计中，<strong>服务 (Service)、节点 (Node)、跳跃点 (Hop) 和 转发链 (Chain)</strong> 是构建其强大灵活的网络功能的基础模块。我们可以把 GOST 想象成一个<strong>高度自动化的国际物流系统</strong>。</p>
+<hr>
+<h3 id="一、-四大核心抽象概念：物流系统的基本构成"><a href="#一、-四大核心抽象概念：物流系统的基本构成" class="headerlink" title="一、 四大核心抽象概念：物流系统的基本构成"></a>一、 四大核心抽象概念：物流系统的基本构成</h3><h4 id="1-服务-Service-——-“本地快递站点”"><a href="#1-服务-Service-——-“本地快递站点”" class="headerlink" title="1. 服务 (Service) —— “本地快递站点”"></a>1. 服务 (Service) —— “本地快递站点”</h4><p><strong>服务</strong>是 GOST 程序的入口，也是数据的出入口。</p>
+<ul>
+<li><strong>通俗解释</strong>：就像你家门口的快递站。它是你接触物流系统的第一站，负责接收你要发出的包裹（数据），或者把你买的包裹交给你。</li>
+<li><strong>技术内核</strong>：一个服务包含一个**监听器 (Listener)<strong>（负责开门接客、建立数据通道）和一个</strong>处理器 (Handler)**（负责理解你的请求，比如你是想发 HTTP 还是 SOCKS5）。</li>
+</ul>
+<h4 id="2-节点-Node-——-“中转站或目的地”"><a href="#2-节点-Node-——-“中转站或目的地”" class="headerlink" title="2. 节点 (Node) —— “中转站或目的地”"></a>2. 节点 (Node) —— “中转站或目的地”</h4><p><strong>节点</strong>是转发链中使用的服务的总称，可以看作是“服务”的客户端视角。</p>
+<ul>
+<li><strong>通俗解释</strong>：它是物流路径上的一个个“中转仓库”或“目的仓库”。虽然它们本质上可能也是一个快递站，但在你的这条发货路径上，它们扮演的是接收和传递的角色。</li>
+<li><strong>技术内核</strong>：每个节点包含一个**拨号器 (Dialer)<strong>（负责给下一个点打电话）和一个</strong>连接器 (Connector)**（负责建立实际的协议连接）。</li>
+</ul>
+<h4 id="3-跳跃点-Hop-——-“物流集散地”"><a href="#3-跳跃点-Hop-——-“物流集散地”" class="headerlink" title="3. 跳跃点 (Hop) —— “物流集散地”"></a>3. 跳跃点 (Hop) —— “物流集散地”</h4><p><strong>跳跃点</strong>是一组节点的集合。</p>
+<ul>
+<li><strong>通俗解释</strong>：想象在去往美国的路上，必须经过“欧洲集散地”。这个集散地里有德国仓库、法国仓库等（节点）。你只要进入这个集散地，具体走哪个仓库由物流公司（选择器）决定。</li>
+<li><strong>技术内核</strong>：数据会依次经过转发链中的每个跳跃点，而在每个跳跃点内部，会根据策略（如负载均衡）选取一个具体的节点来处理数据。</li>
+</ul>
+<h4 id="4-转发链-Chain-——-“完整的运输路线”"><a href="#4-转发链-Chain-——-“完整的运输路线”" class="headerlink" title="4. 转发链 (Chain) —— “完整的运输路线”"></a>4. 转发链 (Chain) —— “完整的运输路线”</h4><p><strong>转发链</strong>是由若干个跳跃点按顺序构成的多级组合。</p>
+<ul>
+<li><strong>通俗解释</strong>：这就是你包裹的完整“路线图”，例如：<code>本地站点 -&gt; 欧洲集散地 -&gt; 美国集散地 -&gt; 最终目的地</code>。</li>
+<li><strong>技术内核</strong>：转发链是服务与服务之间建立连接的纽带，通过将多个跳跃点串联，形成一条从本地服务到目标主机的完整路径。</li>
+</ul>
+<hr>
+<h3 id="二、-如何实现代理、转发与隧道？"><a href="#二、-如何实现代理、转发与隧道？" class="headerlink" title="二、 如何实现代理、转发与隧道？"></a>二、 如何实现代理、转发与隧道？</h3><p>GOST 通过将这些抽象概念进行<strong>逻辑分层</strong>（数据通道层 vs 数据处理层）来实现不同的网络功能。</p>
+<h4 id="1-代理-Proxy-的实现：中介服务"><a href="#1-代理-Proxy-的实现：中介服务" class="headerlink" title="1. 代理 (Proxy) 的实现：中介服务"></a>1. 代理 (Proxy) 的实现：中介服务</h4><ul>
+<li><strong>实现逻辑</strong>：<strong>服务</strong>的“处理器”解析客户端发来的代理协议（如 HTTP&#x2F;SOCKS5）。它充当“中间人”，终结客户端的连接，并根据协议协商的目标地址，通过<strong>转发链</strong>（由多个<strong>跳跃点</strong>和<strong>节点</strong>组成）向第三方服务发起新连接。</li>
+<li><strong>特点</strong>：代理能够识别并修改数据内容，实现身份认证和权限管理。</li>
+</ul>
+<h4 id="2-转发-Forwarding-的实现：原样传递"><a href="#2-转发-Forwarding-的实现：原样传递" class="headerlink" title="2. 转发 (Forwarding) 的实现：原样传递"></a>2. 转发 (Forwarding) 的实现：原样传递</h4><ul>
+<li><strong>实现逻辑</strong>：通常指端口转发。<strong>服务</strong>接收到数据后，不解析具体的应用层内容（不拆包），直接通过<strong>转发链</strong>将数据原封不动地发往预定义的另一个端口。</li>
+<li><strong>特点</strong>：它是一种定向的、透明的行为，客户端甚至不知道自己正在经过转发服务。</li>
+</ul>
+<h4 id="3-隧道-Tunneling-的实现：协议封装"><a href="#3-隧道-Tunneling-的实现：协议封装" class="headerlink" title="3. 隧道 (Tunneling) 的实现：协议封装"></a>3. 隧道 (Tunneling) 的实现：协议封装</h4><ul>
+<li><strong>实现逻辑</strong>：GOST 将协议拆分为“数据处理层”和“数据通道层”。<strong>隧道</strong>本质上是利用一种特定的“数据通道”协议（如 TLS, Websocket, QUIC）来承载另一种协议的数据。<ul>
+<li>在<strong>服务</strong>端，<strong>监听器</strong>初始化这个“加密通道”。</li>
+<li>在<strong>节点</strong>端，<strong>拨号器</strong>负责与服务端建立这个“逻辑管道”。</li>
+</ul>
+</li>
+<li><strong>比喻</strong>：就像把法拉利（原始数据）装进集装箱（隧道协议），外人只看到集装箱在移动，而看不见里面的豪车。</li>
+</ul>
+<h3 id="总结关系图"><a href="#总结关系图" class="headerlink" title="总结关系图"></a>总结关系图</h3><ol>
+<li><strong>用户请求</strong>到达 **服务 (Service)**。</li>
+<li><strong>处理器 (Handler)</strong> 决定是执行<strong>代理</strong>还是<strong>转发</strong>逻辑。</li>
+<li>如果配置了 **转发链 (Chain)**，系统会逐个经过 **跳跃点 (Hop)**。</li>
+<li>在每个跳跃点中，选出一个 **节点 (Node)**，利用其 <strong>隧道 (Tunnel)</strong> 能力将数据安全地传递给下一站。</li>
+</ol>
+<p>这种灵活的组合，使得 GOST 能够像搭积木一样，轻松实现诸如“使用 Shadowsocks 代理通过 TLS 隧道进行多级中转”这样复杂的网络配置。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://gengzhikui.github.io/blog/2026/02/13/gost%20%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0%E6%9E%B6%E6%9E%84/" data-id="cmll03scn0000f47oeyle7wt3" data-title="gost 工作原理和实现架构" class="article-share-link"><span class="fa fa-share">Teilen</span></a>
+      
+      
+      
+    </footer>
+  </div>
+  
+</article>
+
+
+
+  
     <article id="post-深入理解代理协议的原理和实现" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
     <a href="/blog/2026/02/05/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E4%BB%A3%E7%90%86%E5%8D%8F%E8%AE%AE%E7%9A%84%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0/" class="article-date">
@@ -564,7 +649,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://gengzhikui.github.io/blog/2026/02/05/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E4%BB%A3%E7%90%86%E5%8D%8F%E8%AE%AE%E7%9A%84%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0/" data-id="cml8gvasp00013vfyg0un9g84" data-title="深入理解代理协议的原理和实现" class="article-share-link"><span class="fa fa-share">Teilen</span></a>
+      <a data-url="https://gengzhikui.github.io/blog/2026/02/05/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E4%BB%A3%E7%90%86%E5%8D%8F%E8%AE%AE%E7%9A%84%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0/" data-id="cmlkz73ve0001kv7o1fy80265" data-title="深入理解代理协议的原理和实现" class="article-share-link"><span class="fa fa-share">Teilen</span></a>
       
       
       
@@ -615,7 +700,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://gengzhikui.github.io/blog/2026/02/05/hello-world/" data-id="cml8gvaso00003vfya836c1nu" data-title="Hello World" class="article-share-link"><span class="fa fa-share">Teilen</span></a>
+      <a data-url="https://gengzhikui.github.io/blog/2026/02/05/hello-world/" data-id="cmlkz73vd0000kv7oe74c3f8m" data-title="Hello World" class="article-share-link"><span class="fa fa-share">Teilen</span></a>
       
       
       
@@ -656,6 +741,10 @@
     <h3 class="widget-title">letzter Beitrag</h3>
     <div class="widget">
       <ul>
+        
+          <li>
+            <a href="/blog/2026/02/13/gost%20%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0%E6%9E%B6%E6%9E%84/">gost 工作原理和实现架构</a>
+          </li>
         
           <li>
             <a href="/blog/2026/02/05/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E4%BB%A3%E7%90%86%E5%8D%8F%E8%AE%AE%E7%9A%84%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0/">深入理解代理协议的原理和实现</a>
