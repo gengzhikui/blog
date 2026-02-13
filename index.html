@@ -239,7 +239,7 @@
         
   
     <h1 itemprop="name">
-      <a class="p-name article-title" href="/blog/2026/02/13/gost%20%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0%E6%9E%B6%E6%9E%84/">gost 工作原理和实现架构</a>
+      <a class="p-name article-title" href="/blog/2026/02/13/gost%20%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0%E6%9E%B6%E6%9E%84/">网络世界的“变形机甲”：一文拆解 GOST 的转发、代理与隧道魔法</a>
     </h1>
   
 
@@ -247,61 +247,112 @@
     
     <div class="e-content article-entry" itemprop="articleBody">
       
-        <p>在 GOST 的架构设计中，<strong>服务 (Service)、节点 (Node)、跳跃点 (Hop) 和 转发链 (Chain)</strong> 是构建其强大灵活的网络功能的基础模块。我们可以把 GOST 想象成一个<strong>高度自动化的国际物流系统</strong>。</p>
+        <p>如果你曾折腾过内网穿透、科学上网或是跨云机房组网，你一定听说过 <strong>GOST (GO Simple Tunnel)</strong> 这个神器。</p>
+<p>在网络世界里，<strong>转发 (Forwarding)<strong>、</strong>代理 (Proxy)</strong> 和 <strong>隧道 (Tunneling)</strong> 是三种最基础的“数据搬运”手艺。普通的软件往往只精通其中一门，但 GOST 却像一台用 Go 语言编写的“超级变形机甲”，它把这三种底层技术彻底解耦，变成了可以随意拼接的乐高积木。</p>
+<p>今天，我们拆解下 GOST 的核心架构，看看它是如何玩转这三大底层技术的。</p>
 <hr>
-<h3 id="一、-四大核心抽象概念：物流系统的基本构成"><a href="#一、-四大核心抽象概念：物流系统的基本构成" class="headerlink" title="一、 四大核心抽象概念：物流系统的基本构成"></a>一、 四大核心抽象概念：物流系统的基本构成</h3><h4 id="1-服务-Service-——-“本地快递站点”"><a href="#1-服务-Service-——-“本地快递站点”" class="headerlink" title="1. 服务 (Service) —— “本地快递站点”"></a>1. 服务 (Service) —— “本地快递站点”</h4><p><strong>服务</strong>是 GOST 程序的入口，也是数据的出入口。</p>
+<h2 id="一、-核心架构：GOST-的“乐高式”心法"><a href="#一、-核心架构：GOST-的“乐高式”心法" class="headerlink" title="一、 核心架构：GOST 的“乐高式”心法"></a>一、 核心架构：GOST 的“乐高式”心法</h2><p>在深入具体技术之前，我们必须先看懂 GOST 的图纸。GOST 之所以能千变万化，全靠它极其精妙的抽象设计。它把所有复杂的网络交互，浓缩成了两个最核心的命令行参数：</p>
 <ul>
-<li><strong>通俗解释</strong>：就像你家门口的快递站。它是你接触物流系统的第一站，负责接收你要发出的包裹（数据），或者把你买的包裹交给你。</li>
-<li><strong>技术内核</strong>：一个服务包含一个**监听器 (Listener)<strong>（负责开门接客、建立数据通道）和一个</strong>处理器 (Handler)**（负责理解你的请求，比如你是想发 HTTP 还是 SOCKS5）。</li>
+<li>👉 <strong><code>-L</code> (Listen &#x2F; Service 收货服务)<strong>：决定了你在本地</strong>怎么开门迎客</strong>。你是做无脑搬运，还是做精细代购？全由 <code>-L</code> 决定。</li>
+<li>👉 <strong><code>-F</code> (Forward &#x2F; Chain 发货路线)<strong>：决定了你收到货后，要把包裹</strong>发往哪里、怎么发</strong>。它是物流的调度中心。</li>
 </ul>
-<h4 id="2-节点-Node-——-“中转站或目的地”"><a href="#2-节点-Node-——-“中转站或目的地”" class="headerlink" title="2. 节点 (Node) —— “中转站或目的地”"></a>2. 节点 (Node) —— “中转站或目的地”</h4><p><strong>节点</strong>是转发链中使用的服务的总称，可以看作是“服务”的客户端视角。</p>
-<ul>
-<li><strong>通俗解释</strong>：它是物流路径上的一个个“中转仓库”或“目的仓库”。虽然它们本质上可能也是一个快递站，但在你的这条发货路径上，它们扮演的是接收和传递的角色。</li>
-<li><strong>技术内核</strong>：每个节点包含一个**拨号器 (Dialer)<strong>（负责给下一个点打电话）和一个</strong>连接器 (Connector)**（负责建立实际的协议连接）。</li>
-</ul>
-<h4 id="3-跳跃点-Hop-——-“物流集散地”"><a href="#3-跳跃点-Hop-——-“物流集散地”" class="headerlink" title="3. 跳跃点 (Hop) —— “物流集散地”"></a>3. 跳跃点 (Hop) —— “物流集散地”</h4><p><strong>跳跃点</strong>是一组节点的集合。</p>
-<ul>
-<li><strong>通俗解释</strong>：想象在去往美国的路上，必须经过“欧洲集散地”。这个集散地里有德国仓库、法国仓库等（节点）。你只要进入这个集散地，具体走哪个仓库由物流公司（选择器）决定。</li>
-<li><strong>技术内核</strong>：数据会依次经过转发链中的每个跳跃点，而在每个跳跃点内部，会根据策略（如负载均衡）选取一个具体的节点来处理数据。</li>
-</ul>
-<h4 id="4-转发链-Chain-——-“完整的运输路线”"><a href="#4-转发链-Chain-——-“完整的运输路线”" class="headerlink" title="4. 转发链 (Chain) —— “完整的运输路线”"></a>4. 转发链 (Chain) —— “完整的运输路线”</h4><p><strong>转发链</strong>是由若干个跳跃点按顺序构成的多级组合。</p>
-<ul>
-<li><strong>通俗解释</strong>：这就是你包裹的完整“路线图”，例如：<code>本地站点 -&gt; 欧洲集散地 -&gt; 美国集散地 -&gt; 最终目的地</code>。</li>
-<li><strong>技术内核</strong>：转发链是服务与服务之间建立连接的纽带，通过将多个跳跃点串联，形成一条从本地服务到目标主机的完整路径。</li>
-</ul>
+<p>只要掌握了 <code>-L</code>（收货）和 <code>-F</code>（发货）的搭配，你就能组合出无数种网络拓扑。接下来，我们看看 GOST 是怎么分别实现三大绝技的。</p>
 <hr>
-<h3 id="二、-如何实现代理、转发与隧道？"><a href="#二、-如何实现代理、转发与隧道？" class="headerlink" title="二、 如何实现代理、转发与隧道？"></a>二、 如何实现代理、转发与隧道？</h3><p>GOST 通过将这些抽象概念进行<strong>逻辑分层</strong>（数据通道层 vs 数据处理层）来实现不同的网络功能。</p>
-<h4 id="1-代理-Proxy-的实现：中介服务"><a href="#1-代理-Proxy-的实现：中介服务" class="headerlink" title="1. 代理 (Proxy) 的实现：中介服务"></a>1. 代理 (Proxy) 的实现：中介服务</h4><ul>
-<li><strong>实现逻辑</strong>：<strong>服务</strong>的“处理器”解析客户端发来的代理协议（如 HTTP&#x2F;SOCKS5）。它充当“中间人”，终结客户端的连接，并根据协议协商的目标地址，通过<strong>转发链</strong>（由多个<strong>跳跃点</strong>和<strong>节点</strong>组成）向第三方服务发起新连接。</li>
-<li><strong>特点</strong>：代理能够识别并修改数据内容，实现身份认证和权限管理。</li>
+<h2 id="二、-第一招：转发-Forwarding-——-搭建“无脑直达专线”"><a href="#二、-第一招：转发-Forwarding-——-搭建“无脑直达专线”" class="headerlink" title="二、 第一招：转发 (Forwarding) —— 搭建“无脑直达专线”"></a>二、 第一招：转发 (Forwarding) —— 搭建“无脑直达专线”</h2><p><strong>技术内核</strong>：工作在传输层（TCP&#x2F;UDP）。它不看数据包里的应用层内容，只负责建立管道，将入口的流量原封不动地“倾倒”到出口。</p>
+<p><strong>📦 物流比喻</strong>：你建了一条从本地直达北京的<strong>封闭传送带</strong>。传送带不关心上面跑的是苹果还是手机，只要放上去，就全速送到目的地。</p>
+<h3 id="💻-实战演练：本地端口转发"><a href="#💻-实战演练：本地端口转发" class="headerlink" title="💻 实战演练：本地端口转发"></a>💻 实战演练：本地端口转发</h3><p>假设你的内网有一台数据库服务器（192.168.1.100），但由于防火墙限制，你只能访问跳板机的 8080 端口。在跳板机上运行：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gost -L=tcp://:8080/192.168.1.100:3306</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p><strong>原理解析</strong>：<br>跳板机在本地开启 8080 端口（门卫）。当你的电脑连接这个端口时，GOST <strong>连看都不看</strong>你发了什么 SQL 语句，直接在后台默默连上数据库的 3306 端口，把你们俩对接起来。这就是最纯粹的<strong>透明转发</strong>。</p>
+<hr>
+<h2 id="三、-第二招：代理-Proxy-——-开设“万能代购门店”"><a href="#三、-第二招：代理-Proxy-——-开设“万能代购门店”" class="headerlink" title="三、 第二招：代理 (Proxy) —— 开设“万能代购门店”"></a>三、 第二招：代理 (Proxy) —— 开设“万能代购门店”</h2><p><strong>技术内核</strong>：工作在应用层（如 HTTP, SOCKS5）。代理会<strong>终结（掐断）</strong>客户端的原始连接，自己拆开数据包，看懂你的请求（比如你要访问哪个域名），然后由代理服务器自己发起一个全新的连接去拉取数据。</p>
+<p><strong>🛍️ 物流比喻</strong>：你在本地开了一个<strong>海外代购点</strong>。客户把购物清单（HTTP&#x2F;SOCKS 请求）交给你，你以自己的名义去和国外商家沟通、买单、收货，最后把货转交给客户。商家永远不知道真实买家是谁。</p>
+<h3 id="💻-实战演练：标准-SOCKS5-代理"><a href="#💻-实战演练：标准-SOCKS5-代理" class="headerlink" title="💻 实战演练：标准 SOCKS5 代理"></a>💻 实战演练：标准 SOCKS5 代理</h3><p>在你的服务器上运行以下命令，把它变成一台代理服务器：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gost -L=socks5://:1080</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p><strong>原理解析</strong>：<br>当你的浏览器连上 1080 端口并请求 <code>www.github.com</code> 时，GOST 充当了大堂经理。它不仅接收了包裹，还<strong>拆开看了清单</strong>，发现你要去 Github。于是 GOST 自己去连 Github，拿到网页后再顺着原路塞回给浏览器。</p>
+<hr>
+<h2 id="四、-第三招：隧道-Tunneling-——-打造“套娃式加密集装箱”"><a href="#四、-第三招：隧道-Tunneling-——-打造“套娃式加密集装箱”" class="headerlink" title="四、 第三招：隧道 (Tunneling) —— 打造“套娃式加密集装箱”"></a>四、 第三招：隧道 (Tunneling) —— 打造“套娃式加密集装箱”</h2><p><strong>技术内核</strong>：隧道的本质是**协议封装 (Encapsulation)**。它把一种协议（如 SOCKS5）的数据包，塞进另一种协议（如 TLS 加密或 WebSocket 伪装）的载荷中传输，从而实现穿透防火墙或数据加密。</p>
+<p><strong>🚛 物流比喻</strong>：代购清单直接寄容易被查水表。你找来一辆外表伪装成普通快递车的<strong>防弹装甲车（隧道协议）</strong>，把真实的代购清单<strong>锁进车里的保险箱（加密封装）</strong>。路上的检查站只看到一辆普通快递车，直接放行。</p>
+<h3 id="💻-实战演练：TLS-加密隧道（需要两台机器配合）"><a href="#💻-实战演练：TLS-加密隧道（需要两台机器配合）" class="headerlink" title="💻 实战演练：TLS 加密隧道（需要两台机器配合）"></a>💻 实战演练：TLS 加密隧道（需要两台机器配合）</h3><p>这是最容易让人犯迷糊的地方！<strong>隧道必须有“入口打包”和“出口解包”两端，所以必须在两台机器上运行。</strong></p>
+<p><strong>第 1 步：海外服务器（负责解包与代购）</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 启动一个外表包裹着 TLS 加密层的 SOCKS5 服务</span></span><br><span class="line">gost -L=socks5+tls://:443</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><em>(服务器说：我在 443 端口等货，只接收 TLS 保险箱。拆开保险箱后，按里面的 SOCKS5 清单去买东西。)</em></li>
 </ul>
-<h4 id="2-转发-Forwarding-的实现：原样传递"><a href="#2-转发-Forwarding-的实现：原样传递" class="headerlink" title="2. 转发 (Forwarding) 的实现：原样传递"></a>2. 转发 (Forwarding) 的实现：原样传递</h4><ul>
-<li><strong>实现逻辑</strong>：通常指端口转发。<strong>服务</strong>接收到数据后，不解析具体的应用层内容（不拆包），直接通过<strong>转发链</strong>将数据原封不动地发往预定义的另一个端口。</li>
-<li><strong>特点</strong>：它是一种定向的、透明的行为，客户端甚至不知道自己正在经过转发服务。</li>
+<p><strong>第 2 步：你的本地电脑（负责打包与发货）</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 接收本地普通请求，塞进 TLS 保险箱，发给海外服务器</span></span><br><span class="line">gost -L=socks5://:1080 -F=socks5+tls://海外服务器IP:443</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><em>(电脑说：我在本地 1080 接客。客人给我单子后，我用 <code>-F</code> 把它套上 TLS 外壳，寄给远端的 443 端口。)</em></li>
 </ul>
-<h4 id="3-隧道-Tunneling-的实现：协议封装"><a href="#3-隧道-Tunneling-的实现：协议封装" class="headerlink" title="3. 隧道 (Tunneling) 的实现：协议封装"></a>3. 隧道 (Tunneling) 的实现：协议封装</h4><ul>
-<li><strong>实现逻辑</strong>：GOST 将协议拆分为“数据处理层”和“数据通道层”。<strong>隧道</strong>本质上是利用一种特定的“数据通道”协议（如 TLS, Websocket, QUIC）来承载另一种协议的数据。<ul>
-<li>在<strong>服务</strong>端，<strong>监听器</strong>初始化这个“加密通道”。</li>
-<li>在<strong>节点</strong>端，<strong>拨号器</strong>负责与服务端建立这个“逻辑管道”。</li>
-</ul>
-</li>
-<li><strong>比喻</strong>：就像把法拉利（原始数据）装进集装箱（隧道协议），外人只看到集装箱在移动，而看不见里面的豪车。</li>
-</ul>
-<h3 id="总结关系图"><a href="#总结关系图" class="headerlink" title="总结关系图"></a>总结关系图</h3><ol>
-<li><strong>用户请求</strong>到达 **服务 (Service)**。</li>
-<li><strong>处理器 (Handler)</strong> 决定是执行<strong>代理</strong>还是<strong>转发</strong>逻辑。</li>
-<li>如果配置了 **转发链 (Chain)**，系统会逐个经过 **跳跃点 (Hop)**。</li>
-<li>在每个跳跃点中，选出一个 **节点 (Node)**，利用其 <strong>隧道 (Tunnel)</strong> 能力将数据安全地传递给下一站。</li>
+<p>通过这种 <strong>服务 (-L) + 转发链 (-F)</strong> 的组合，GOST 完美实现了<strong>代理+隧道</strong>的融合。</p>
+<hr>
+<h2 id="五、-终极奥义：代理链-Proxy-Chain-的俄罗斯套娃魔法"><a href="#五、-终极奥义：代理链-Proxy-Chain-的俄罗斯套娃魔法" class="headerlink" title="五、 终极奥义：代理链 (Proxy Chain) 的俄罗斯套娃魔法"></a>五、 终极奥义：代理链 (Proxy Chain) 的俄罗斯套娃魔法</h2><p>理解了前面三招，我们来看 GOST 最疯狂的玩法：<strong>多级代理链</strong>。</p>
+<p>假设你手写了这样一行命令：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gost -L=tcp://:8080 -F=ws://日本IP:80 -F=tls://美国IP:443 -F=socks5://最终代理IP:1080</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>很多初学者会疑惑：“这么长一串，是在同一台机器上运行吗？”<br><strong>答案是：这串命令只在你的“本地电脑”上运行。</strong> 它是你手里的一张<strong>“终极物流发货单”</strong>。</p>
+<p><strong>发货全过程（前方烧脑，请系好安全带）：</strong><br>要让这串代码跑通，你必须提前在“日本”、“美国”、“最终代理”三台服务器上跑起对应的 <code>-L</code> 监听服务。当你在本地发起请求时：</p>
+<ol>
+<li>**本地打包 (-F&#x3D;socks5)**：GOST 先写一张代购单：“请去买东西”。</li>
+<li>**美国加锁 (-F&#x3D;tls)**：GOST 把代购单塞进 <strong>TLS 防弹保险箱</strong>，收件人写“美国”。</li>
+<li>**日本伪装 (-F&#x3D;ws)**：GOST 再把保险箱塞进一个写着 <strong>WebSocket（网页流量）的大纸箱</strong>，收件人写“日本”。</li>
+<li><strong>开始运输</strong>：</li>
 </ol>
-<p>这种灵活的组合，使得 GOST 能够像搭积木一样，轻松实现诸如“使用 Shadowsocks 代理通过 TLS 隧道进行多级中转”这样复杂的网络配置。</p>
+<ul>
+<li>包裹到达日本，日本服务器拆掉外层大纸箱，发现里面是个去美国的保险箱，<strong>盲目转发</strong>给美国。</li>
+<li>美国服务器收到保险箱，用 TLS 密钥解开，发现是去最终节点的 SOCKS5 代理单，<strong>盲目转发</strong>给最终代理。</li>
+<li>最终代理拿到单子，执行<strong>代理</strong>动作，去拉取真实网页，原路返回！</li>
+</ul>
+<p>在这个链条中，<strong>日本不知道你要去最终代理，美国不知道你要干什么。这就是洋葱路由（Tor）实现高匿名的核心机制！</strong></p>
+<hr>
+<h2 id="总结与对比"><a href="#总结与对比" class="headerlink" title="总结与对比"></a>总结与对比</h2><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>转发 (Forwarding)</th>
+<th>代理 (Proxy)</th>
+<th>隧道 (Tunneling)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>GOST 里的体现</strong></td>
+<td><code>tcp://</code>, <code>udp://</code></td>
+<td><code>http://</code>, <code>socks5://</code></td>
+<td><code>+tls</code>, <code>+ws</code>, <code>+quic</code></td>
+</tr>
+<tr>
+<td><strong>工作方式</strong></td>
+<td>管道直连，原样倾倒</td>
+<td>拆包重组，代为请求</td>
+<td>协议套娃，外层伪装</td>
+</tr>
+<tr>
+<td><strong>核心目的</strong></td>
+<td>端口映射，流量直达</td>
+<td>缓存加速，隐藏身份</td>
+<td>突破封锁，加密防窃听</td>
+</tr>
+<tr>
+<td><strong>连接状态</strong></td>
+<td>1 条底层物理连接</td>
+<td>2 条独立逻辑连接</td>
+<td>虚拟逻辑链路 (Overlay)</td>
+</tr>
+</tbody></table>
+<p>GOST 的伟大之处就在于，它没有发明新的网络协议，而是用极其优雅的代码架构，把现有的协议拼接成了无所不能的网络积木。掌握了 GOST，你就拥有了主宰网络流向的上帝视角。</p>
 
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://gengzhikui.github.io/blog/2026/02/13/gost%20%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0%E6%9E%B6%E6%9E%84/" data-id="cmll0riyi0000ga7o7z8gdhpi" data-title="gost 工作原理和实现架构" class="article-share-link"><span class="fa fa-share">Teilen</span></a>
+      <a data-url="https://gengzhikui.github.io/blog/2026/02/13/gost%20%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0%E6%9E%B6%E6%9E%84/" data-id="cmll0riyi0000ga7o7z8gdhpi" data-title="网络世界的“变形机甲”：一文拆解 GOST 的转发、代理与隧道魔法" class="article-share-link"><span class="fa fa-share">Teilen</span></a>
       
       
       
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/blog/tags/gost/" rel="tag">gost</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/blog/tags/%E4%BB%A3%E7%90%86/" rel="tag">代理</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/blog/tags/%E7%BD%91%E7%BB%9C/" rel="tag">网络</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/blog/tags/%E8%BD%AC%E5%8F%91/" rel="tag">转发</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/blog/tags/%E9%9A%A7%E9%81%93/" rel="tag">隧道</a></li></ul>
+
     </footer>
   </div>
   
@@ -879,7 +930,7 @@
   <div class="widget-wrap">
     <h3 class="widget-title">Tags</h3>
     <div class="widget">
-      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/blog/tags/%E4%BB%A3%E7%90%86/" rel="tag">代理</a></li><li class="tag-list-item"><a class="tag-list-link" href="/blog/tags/%E7%BD%91%E7%BB%9C/" rel="tag">网络</a></li><li class="tag-list-item"><a class="tag-list-link" href="/blog/tags/%E8%BD%AC%E5%8F%91/" rel="tag">转发</a></li><li class="tag-list-item"><a class="tag-list-link" href="/blog/tags/%E9%9A%A7%E9%81%93/" rel="tag">隧道</a></li></ul>
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/blog/tags/gost/" rel="tag">gost</a></li><li class="tag-list-item"><a class="tag-list-link" href="/blog/tags/%E4%BB%A3%E7%90%86/" rel="tag">代理</a></li><li class="tag-list-item"><a class="tag-list-link" href="/blog/tags/%E7%BD%91%E7%BB%9C/" rel="tag">网络</a></li><li class="tag-list-item"><a class="tag-list-link" href="/blog/tags/%E8%BD%AC%E5%8F%91/" rel="tag">转发</a></li><li class="tag-list-item"><a class="tag-list-link" href="/blog/tags/%E9%9A%A7%E9%81%93/" rel="tag">隧道</a></li></ul>
     </div>
   </div>
 
@@ -889,7 +940,7 @@
   <div class="widget-wrap">
     <h3 class="widget-title">Tag Cloud</h3>
     <div class="widget tagcloud">
-      <a href="/blog/tags/%E4%BB%A3%E7%90%86/" style="font-size: 10px;">代理</a> <a href="/blog/tags/%E7%BD%91%E7%BB%9C/" style="font-size: 10px;">网络</a> <a href="/blog/tags/%E8%BD%AC%E5%8F%91/" style="font-size: 10px;">转发</a> <a href="/blog/tags/%E9%9A%A7%E9%81%93/" style="font-size: 10px;">隧道</a>
+      <a href="/blog/tags/gost/" style="font-size: 10px;">gost</a> <a href="/blog/tags/%E4%BB%A3%E7%90%86/" style="font-size: 20px;">代理</a> <a href="/blog/tags/%E7%BD%91%E7%BB%9C/" style="font-size: 20px;">网络</a> <a href="/blog/tags/%E8%BD%AC%E5%8F%91/" style="font-size: 20px;">转发</a> <a href="/blog/tags/%E9%9A%A7%E9%81%93/" style="font-size: 20px;">隧道</a>
     </div>
   </div>
 
@@ -915,7 +966,7 @@
           </li>
         
           <li>
-            <a href="/blog/2026/02/13/gost%20%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0%E6%9E%B6%E6%9E%84/">gost 工作原理和实现架构</a>
+            <a href="/blog/2026/02/13/gost%20%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0%E6%9E%B6%E6%9E%84/">网络世界的“变形机甲”：一文拆解 GOST 的转发、代理与隧道魔法</a>
           </li>
         
           <li>
