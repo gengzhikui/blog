@@ -4,17 +4,17 @@
   <meta charset="utf-8">
   
   
-  <title>深入理解代理协议的原理和实现 | 网络安全研发随想</title>
+  <title>深入浅出：揭秘代理协议的底层原理与代码实现 | 网络安全研发随想</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-  <meta name="description" content="代理协议（Proxy Protocols）的核心任务都是一样的：告诉代理服务器“我想去哪里”，然后建立一条数据传输的管道。 在操作系统眼中，代理的本质是：两个 TCP 连接之间的数据搬运工。即：Socket_A (Client) &lt;&#x3D;&#x3D;[用户态内存拷贝]&#x3D;&#x3D;&gt; Socket_B (Target)。  1. 四种不同的代理协议介绍有四种常用的代理协议：HTTP&#x2F;SOCKS&amp;#x">
+  <meta name="description" content="代理协议（Proxy Protocols）的核心任务，说白了就干一件事：听懂你“想去哪”，然后帮你搭一条隐形的数据管道。 在操作系统的眼里，代理就是一个毫无感情的“数据搬运工”。它的终极形态就是两根水管（TCP 连接）之间的无脑拷贝：Socket_A (你的电脑) &lt;&#x3D;&#x3D;[内存倒腾]&#x3D;&#x3D;&gt; Socket_B (目标服务器)。 今天，我们就拨开迷雾，从协议规范到操作系统底层，再到 Go">
 <meta property="og:type" content="article">
-<meta property="og:title" content="深入理解代理协议的原理和实现">
+<meta property="og:title" content="深入浅出：揭秘代理协议的底层原理与代码实现">
 <meta property="og:url" content="https://gengzhikui.github.io/blog/2026/02/05/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E4%BB%A3%E7%90%86%E5%8D%8F%E8%AE%AE%E7%9A%84%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0/index.html">
 <meta property="og:site_name" content="网络安全研发随想">
-<meta property="og:description" content="代理协议（Proxy Protocols）的核心任务都是一样的：告诉代理服务器“我想去哪里”，然后建立一条数据传输的管道。 在操作系统眼中，代理的本质是：两个 TCP 连接之间的数据搬运工。即：Socket_A (Client) &lt;&#x3D;&#x3D;[用户态内存拷贝]&#x3D;&#x3D;&gt; Socket_B (Target)。  1. 四种不同的代理协议介绍有四种常用的代理协议：HTTP&#x2F;SOCKS&amp;#x">
+<meta property="og:description" content="代理协议（Proxy Protocols）的核心任务，说白了就干一件事：听懂你“想去哪”，然后帮你搭一条隐形的数据管道。 在操作系统的眼里，代理就是一个毫无感情的“数据搬运工”。它的终极形态就是两根水管（TCP 连接）之间的无脑拷贝：Socket_A (你的电脑) &lt;&#x3D;&#x3D;[内存倒腾]&#x3D;&#x3D;&gt; Socket_B (目标服务器)。 今天，我们就拨开迷雾，从协议规范到操作系统底层，再到 Go">
 <meta property="og:locale">
 <meta property="article:published_time" content="2026-02-04T20:01:34.000Z">
-<meta property="article:modified_time" content="2026-02-04T20:14:57.417Z">
+<meta property="article:modified_time" content="2026-02-13T15:46:48.618Z">
 <meta property="article:author" content="gengzhikui">
 <meta name="twitter:card" content="summary">
   
@@ -87,7 +87,7 @@
         
   
     <h1 class="p-name article-title" itemprop="headline name">
-      深入理解代理协议的原理和实现
+      深入浅出：揭秘代理协议的底层原理与代码实现
     </h1>
   
 
@@ -95,478 +95,120 @@
     
     <div class="e-content article-entry" itemprop="articleBody">
       
-        <p>代理协议（Proxy Protocols）的核心任务都是一样的：<strong>告诉代理服务器“我想去哪里”，然后建立一条数据传输的管道。</strong></p>
-<p>在操作系统眼中，代理的本质是：<strong>两个 TCP 连接之间的数据搬运工</strong>。<br>即：<code>Socket_A (Client) &lt;==[用户态内存拷贝]==&gt; Socket_B (Target)</code>。</p>
+        <p>代理协议（Proxy Protocols）的核心任务，说白了就干一件事：<strong>听懂你“想去哪”，然后帮你搭一条隐形的数据管道。</strong></p>
+<p>在操作系统的眼里，代理就是一个毫无感情的<strong>“数据搬运工”</strong>。它的终极形态就是两根水管（TCP 连接）之间的无脑拷贝：<br><code>Socket_A (你的电脑) &lt;==[内存倒腾]==&gt; Socket_B (目标服务器)</code>。</p>
+<p>今天，我们就拨开迷雾，从协议规范到操作系统底层，再到 Go 语言的代码级实现，扒一扒 SOCKS、Shadowsocks 和 SSH 这三大代理协议的底裤。</p>
 <hr>
-<h2 id="1-四种不同的代理协议介绍"><a href="#1-四种不同的代理协议介绍" class="headerlink" title="1. 四种不同的代理协议介绍"></a>1. 四种不同的代理协议介绍</h2><p>有四种常用的代理协议：HTTP&#x2F;SOCKS&#x2F;Shadowsocks&#x2F;SSH，不同代理协议的区别在于：<strong>协商方式（握手）、包含的元数据、安全性（加密&#x2F;明文）以及工作的网络层级。</strong></p>
-<h3 id="1-1-HTTP-HTTPS-Proxy-应用层代理"><a href="#1-1-HTTP-HTTPS-Proxy-应用层代理" class="headerlink" title="1.1 HTTP &#x2F; HTTPS Proxy (应用层代理)"></a>1.1 HTTP &#x2F; HTTPS Proxy (应用层代理)</h3><p>这是最基础、历史最悠久的代理协议，原本设计用于浏览网页，后来通过 <code>CONNECT</code> 方法扩展为通用隧道。</p>
-<h4 id="A-普通-HTTP-代理-Plain-HTTP-Proxy"><a href="#A-普通-HTTP-代理-Plain-HTTP-Proxy" class="headerlink" title="A. 普通 HTTP 代理 (Plain HTTP Proxy)"></a>A. 普通 HTTP 代理 (Plain HTTP Proxy)</h4><p>主要用于访问非加密的 HTTP 网站。</p>
+<h2 id="1-代理三剑客：协议层面的“暗号”对接"><a href="#1-代理三剑客：协议层面的“暗号”对接" class="headerlink" title="1. 代理三剑客：协议层面的“暗号”对接"></a>1. 代理三剑客：协议层面的“暗号”对接</h2><p>我们最常用的代理协议主要有三种。它们最大的区别在于：<strong>怎么对暗号（握手）、信件带不带锁（加密）、以及在哪个网络层级干活。</strong></p>
+<h3 id="1-1-SOCKS-协议：纯粹的底层搬运工-会话层"><a href="#1-1-SOCKS-协议：纯粹的底层搬运工-会话层" class="headerlink" title="1.1 SOCKS 协议：纯粹的底层搬运工 (会话层)"></a>1.1 SOCKS 协议：纯粹的底层搬运工 (会话层)</h3><p>SOCKS (Socket Secure) 是一个非常纯粹的底层协议。它不管你传的是网页、邮件还是种子文件，它只负责“盲传”。我们目前最常用的是 <strong>SOCKS5</strong>。</p>
+<blockquote>
+<p><strong>形象比喻</strong>：SOCKS5 就像一个跨国物流中转站。你把包裹给它，上面贴着“我要寄给 1.1.1.1 的 80 端口”，它验完你的 VIP 卡后，直接帮你发货，不管包裹里装的是啥。</p>
+</blockquote>
+<p><strong>交互流程 (状态机对接)：</strong></p>
+<ol>
+<li>**打招呼 (协商认证)**：</li>
+</ol>
 <ul>
-<li><strong>原理</strong>：客户端发送的请求中包含<strong>完整的绝对 URI</strong>。</li>
-<li><strong>报文示例</strong>：<figure class="highlight http"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">GET</span> <span class="string">http://www.example.com/index.html</span> <span class="meta">HTTP/1.1</span></span><br><span class="line"><span class="attribute">Host</span><span class="punctuation">: </span>www.example.com</span><br><span class="line"><span class="attribute">Proxy-Authorization</span><span class="punctuation">: </span>Basic xxxx</span><br></pre></td></tr></table></figure></li>
-<li><strong>处理流程</strong>：<ol>
-<li><strong>解析</strong>：代理服务器解析 HTTP 头，提取目标 URL (<code>www.example.com</code>)。</li>
-<li><strong>请求</strong>：代理服务器代替客户端向目标发起 HTTP 请求。</li>
-<li><strong>转发</strong>：代理服务器收到目标的响应，原封不动（或修改头部后）发回给客户端。</li>
-</ol>
-</li>
-<li><strong>架构特点</strong>：代理服务器必须理解 HTTP 协议，它充当了“中间人”。</li>
+<li>Client：<code>[版本5] [我支持的方法数量] [无密码, 账密认证...]</code></li>
+<li>Server：<code>[版本5] [那我们就用账密认证吧 0x02]</code></li>
 </ul>
-<h4 id="B-HTTPS-隧道代理-HTTP-CONNECT-Method"><a href="#B-HTTPS-隧道代理-HTTP-CONNECT-Method" class="headerlink" title="B. HTTPS 隧道代理 (HTTP CONNECT Method)"></a>B. HTTPS 隧道代理 (HTTP CONNECT Method)</h4><p>为了支持 HTTPS（加密流量），HTTP 协议引入了 <code>CONNECT</code> 方法。这是现代 HTTP 代理的核心。</p>
+<ol start="2">
+<li>**查户口 (认证阶段)**：交互用户名和密码（如果上一步选了无密码，这步跳过）。</li>
+<li>**递交路条 (请求阶段)**：</li>
+</ol>
 <ul>
-<li><strong>原理</strong>：客户端告诉代理：“请帮我和 <code>target:443</code> 建立一条 TCP 连接，之后你们只管盲转发数据，不要管内容。”</li>
-<li><strong>握手流程</strong>：<ol>
-<li><strong>Client</strong>: <code>CONNECT www.google.com:443 HTTP/1.1</code></li>
-<li><strong>Proxy</strong>: (连接目标成功后) <code>HTTP/1.1 200 Connection Established</code></li>
-<li><strong>Tunnel</strong>: 此后，客户端与代理之间直接传输加密的 TLS 二进制流，代理只负责像管道一样透传 (Raw TCP Pipe)。</li>
+<li>Client 发送核心指令：<code>[版本5] [命令: 连接] [保留字] [地址类型] [目标地址] [目标端口]</code></li>
+<li><em>高光时刻</em>：这里的 <code>地址类型</code> 可以填 **域名 (DomainName)**。这意味着你不需要在本地做容易被污染的 DNS 解析，直接把域名扔给代理服务器，让它在远端帮你解析。</li>
+</ul>
+<ol start="4">
+<li>**建立通道 (响应与转发)**：Server 连接目标成功后返回状态，随后双方化身为无情的双向数据拷贝机。</li>
 </ol>
-</li>
-<li><strong>架构实现</strong>：<ul>
-<li>代码中通常使用 <code>http.Hijack()</code> 接管底层的 TCP 连接，脱离 HTTP 处理逻辑，进入 <code>io.Copy</code> 循环。</li>
-</ul>
-</li>
-</ul>
-<hr>
-<h3 id="1-2-SOCKS-Session-Layer-Proxy"><a href="#1-2-SOCKS-Session-Layer-Proxy" class="headerlink" title="1.2 SOCKS (Session Layer Proxy)"></a>1.2 SOCKS (Session Layer Proxy)</h3><p>SOCKS (Socket Secure) 是比 HTTP 更底层的协议（会话层），它不关心上层是 HTTP 还是 FTP，只是传递数据包。</p>
-<h4 id="A-SOCKS4-SOCKS4a"><a href="#A-SOCKS4-SOCKS4a" class="headerlink" title="A. SOCKS4 &#x2F; SOCKS4a"></a>A. SOCKS4 &#x2F; SOCKS4a</h4><ul>
-<li><strong>SOCKS4</strong>：<ul>
-<li><strong>原理</strong>：请求头包含 <code>VN(版本)</code> + <code>CD(命令)</code> + <code>DSTPORT</code> + <code>DSTIP</code> + <code>USERID</code>。</li>
-<li><strong>缺陷</strong>：<strong>只支持 IP 地址</strong>。客户端必须自己在本地做 DNS 解析，把域名转成 IP 发给代理。如果在防火墙内，DNS 可能会被污染。</li>
-</ul>
-</li>
-<li><strong>SOCKS4a</strong>：<ul>
-<li><strong>改进</strong>：为了解决 DNS 问题，允许在 IP 字段填无效值（如 0.0.0.x），然后在包尾附加<strong>域名字符串</strong>。代理服务器收到后，由代理在远程进行 DNS 解析（Remote DNS Resolution）。</li>
-</ul>
-</li>
-</ul>
-<h4 id="B-SOCKS5-现代标准"><a href="#B-SOCKS5-现代标准" class="headerlink" title="B. SOCKS5 (现代标准)"></a>B. SOCKS5 (现代标准)</h4><p>SOCKS5 是目前最通用的代理协议，支持认证、UDP 和 IPv6。</p>
+<h3 id="1-2-Shadowsocks-SS-：自带密码箱的特工-表示层-传输层"><a href="#1-2-Shadowsocks-SS-：自带密码箱的特工-表示层-传输层" class="headerlink" title="1.2 Shadowsocks (SS)：自带密码箱的特工 (表示层&#x2F;传输层)"></a>1.2 Shadowsocks (SS)：自带密码箱的特工 (表示层&#x2F;传输层)</h3><p>SOCKS5 虽好，但它的握手过程是明文的，在防火墙（DPI 深度包检测）眼里简直是在裸奔。Shadowsocks 的诞生就是为了<strong>反特征、反探测</strong>。</p>
+<blockquote>
+<p><strong>形象比喻</strong>：SS 直接省去了“对暗号”的废话环节。你上来就塞给它一个用乱码锁死的钛合金密码箱，外人根本不知道里面装的是啥，只有对面的接头人拿着对讲机（预共享密钥）才能解开，发现里面写着真正的目的地。</p>
+</blockquote>
+<p><strong>协议结构极其精简：</strong></p>
+<p>SS 没有协商阶段，连接一旦建立，第一发子弹就是加密数据：<br><code>Packet = [IV (初始化向量)] + [Encrypted Payload (加密载荷)]</code></p>
+<p>而用密码解开 Payload 之后，真正的核心数据才会暴露：<br><code>Payload = [目标地址类型] + [目标地址] + [目标端口] + [你要发送的真实数据]</code></p>
+<p><strong>运作流程：</strong></p>
+<ol>
+<li><strong>客户端封装</strong>：生成随机 IV，用密码把目标地址和真实数据揉在一起，使用现代 AEAD 算法（比如 <code>chacha20-ietf-poly1305</code>，既加密又防篡改）加密，发给服务端。</li>
+<li><strong>服务端拆包</strong>：收到 IV 和密文，用约定的密码解密。抽取出目标地址，建立连接，然后把后面的真实数据扔过去。全过程外网看来只是一串毫无规律的高熵乱码。</li>
+</ol>
+<h3 id="1-3-SSH-Tunnel：坚不可摧的多车道隧道-应用层容器"><a href="#1-3-SSH-Tunnel：坚不可摧的多车道隧道-应用层容器" class="headerlink" title="1.3 SSH Tunnel：坚不可摧的多车道隧道 (应用层容器)"></a>1.3 SSH Tunnel：坚不可摧的多车道隧道 (应用层容器)</h3><p>SSH (Secure Shell) 绝对不仅是用来敲命令的黑客工具，它本身就是一个无敌的安全传输容器。</p>
+<blockquote>
+<p><strong>形象比喻</strong>：SSH 是一条坚不可摧的高速公路（加密 TCP 长连接）。在这条公路内部，它可以划出无数条平行的虚拟车道（Channel）。你的每一次代理请求，只是在这条高速公路上新开辟了一小段专属车道。</p>
+</blockquote>
+<p><strong>多路复用 (Multiplexing) 核心机制：</strong><br>当你使用 <code>ssh -D</code> (动态端口转发，即 SOCKS 模式) 时：</p>
 <ul>
-<li>**交互流程 (状态机)**：<ol>
-<li>**协商认证 (Negotiation)**：<ul>
-<li>Client: <code>[Version 5] [Methods Count] [Method 1, Method 2...]</code> (例: 我支持无认证和用户密码认证)</li>
-<li>Server: <code>[Version 5] [Selected Method]</code> (例: 选用户密码认证 0x02)</li>
+<li>用户在本地发起请求。</li>
+<li>SSH 客户端<strong>不会</strong>发起新的 TCP 连接，而是把请求打包成一个 <code>SSH_MSG_CHANNEL_OPEN</code> 的内部消息，塞进现有的那条 SSH 隧道里。</li>
+<li>SSH 服务端在隧道另一头拆包，发现“哦，你要开个新车道去访问 Google”，于是它在远端发起连接，并把这条虚拟车道和 Google 对接起来。</li>
 </ul>
-</li>
-<li>**认证阶段 (如果需要)**：交互用户名密码。</li>
-<li>**请求阶段 (Request)**：<ul>
-<li>Client: <code>[Ver 5] [Cmd Connect] [Rsv] [AddrType] [DstAddr] [DstPort]</code></li>
-<li><em>关键点</em>：<code>AddrType</code> 可以是 IPv4, IPv6, 或 <strong>DomainName</strong>。使用 DomainName 可以利用远程 DNS。</li>
-</ul>
-</li>
-<li>**响应阶段 (Reply)**：Server 建立连接后返回状态。</li>
-<li>**数据传输 (Relay)**：进入双向数据拷贝模式。</li>
+<hr>
+<h2 id="2-潜入深海：操作系统眼中的代理视图"><a href="#2-潜入深海：操作系统眼中的代理视图" class="headerlink" title="2. 潜入深海：操作系统眼中的代理视图"></a>2. 潜入深海：操作系统眼中的代理视图</h2><p>如果剥离掉各种语言的外衣，下沉到 <strong>内核 (Kernel)</strong> 和 <strong>系统调用 (Syscall)</strong> 层面，你会发现世界极其简单。</p>
+<p>无论上面三种协议怎么秀操作，底层都遵循 <strong>Socket 管道模型</strong>：</p>
+<ol>
+<li><code>read(fd_client)</code>：从客户端读取数据。</li>
+<li><code>write(fd_target)</code>：写入目标服务器。</li>
 </ol>
-</li>
-<li><strong>架构实现</strong>：<ul>
-<li>SOCKS5 的实现通常涉及大量的二进制位操作（Bit manipulation）来解析头部。</li>
-<li>它需要处理 UDP Associate（UDP 转发），这比 TCP 复杂，需要在一个 TCP 控制通道之外单独建立 UDP 监听。</li>
-</ul>
-</li>
-</ul>
-<hr>
-<h3 id="1-3-Shadowsocks-加密传输协议"><a href="#1-3-Shadowsocks-加密传输协议" class="headerlink" title="1.3 Shadowsocks (加密传输协议)"></a>1.3 Shadowsocks (加密传输协议)</h3><p>Shadowsocks (SS) 本质上是一个<strong>自带加密的 SOCKS5 变种</strong>。它的设计初衷是混淆和反探测。</p>
-<h4 id="原理"><a href="#原理" class="headerlink" title="原理"></a>原理</h4><p>SOCKS5 握手是明文的，且特征明显，容易被防火墙识别（DPI）。Shadowsocks 移除了复杂的握手阶段，直接发送加密数据。</p>
-<h4 id="协议结构"><a href="#协议结构" class="headerlink" title="协议结构"></a>协议结构</h4><p>SS 的数据流非常精简，没有“协商”过程，连接建立后直接发数据：<br>$$Packet &#x3D; [IV] + [Encrypted \ Payload]$$<br>而在解密后的 Payload 中，结构如下：<br>$$Payload &#x3D; [Target \ Address \ Type] + [Target \ Address] + [Target \ Port] + [Real \ Data]$$</p>
-<h4 id="运作流程"><a href="#运作流程" class="headerlink" title="运作流程"></a>运作流程</h4><ol>
-<li><strong>Client</strong>:<ul>
-<li>获取目标地址（如 <a target="_blank" rel="noopener" href="https://www.google.com/search?q=google.com:443%EF%BC%89%E3%80%82">https://www.google.com/search?q=google.com:443）。</a></li>
-<li>生成随机 IV（初始化向量）。</li>
-<li>将 <code>[TargetAddr] + [Data]</code> 使用预共享密钥（Password）和 IV 进行加密（常用 AEAD 算法如 <code>chacha20-ietf-poly1305</code>）。</li>
-<li>发送 <code>[IV] + [Ciphertext]</code> 给 Server。</li>
-</ul>
-</li>
-<li><strong>Server</strong>:<ul>
-<li>接收 IV。</li>
-<li>使用密码和 IV 初始化解密器。</li>
-<li>解密出头部，读出目标地址 <code>google.com</code>。</li>
-<li>向 <code>google.com</code> 发起 TCP 连接。</li>
-<li>后续数据全是密文流，直接解密转发。</li>
-</ul>
-</li>
-</ol>
-<h4 id="架构特点"><a href="#架构特点" class="headerlink" title="架构特点"></a>架构特点</h4><ul>
-<li><strong>去中心化</strong>：没有握手，看起来像杂乱的 TCP 数据流。</li>
-<li><strong>AEAD</strong>：现代 SS 实现强制要求 AEAD，意味着数据不仅加密，还带完整性校验，防止主动探测攻击。</li>
-</ul>
-<hr>
-<h3 id="1-4-SSH-Tunnel-多路复用安全通道"><a href="#1-4-SSH-Tunnel-多路复用安全通道" class="headerlink" title="1.4 SSH Tunnel (多路复用安全通道)"></a>1.4 SSH Tunnel (多路复用安全通道)</h3><p>SSH (Secure Shell) 不仅仅是远程登录工具，它本身就是一个强大的加密传输容器。</p>
-<h4 id="原理-1"><a href="#原理-1" class="headerlink" title="原理"></a>原理</h4><p>SSH 协议基于二进制包（Binary Packet Protocol）。在建立好的 SSH 加密连接（Session）内部，可以开启多个逻辑<strong>Channel（信道）</strong>。</p>
-<h4 id="代理模式"><a href="#代理模式" class="headerlink" title="代理模式"></a>代理模式</h4><ul>
-<li><strong>Dynamic Forwarding (-D &#x2F; SOCKS mode)</strong>:<ul>
-<li>SSH 客户端在本地开启一个 SOCKS 监听端口。</li>
-<li>当用户通过 SOCKS 发起请求时，SSH 客户端将请求封装成一个 <code>SSH_MSG_CHANNEL_OPEN</code> 消息，类型为 <code>direct-tcpip</code>，发送给 SSH 服务端。</li>
-<li>SSH 服务端接收消息，解析出目标 IP 和端口，发起连接，并将两个 Channel 对接。</li>
-</ul>
-</li>
-</ul>
-<h4 id="架构实现"><a href="#架构实现" class="headerlink" title="架构实现"></a>架构实现</h4><ul>
-<li>**Multiplexing (多路复用)**：这是 SSH 隧道的核心。<ul>
-<li>物理层：一条 TCP 连接 (Connection)。</li>
-<li>逻辑层：多个 Channel (ID: 0, 1, 2…) 并行传输。</li>
-</ul>
-</li>
-</ul>
-<hr>
-<h3 id="1-5-不同代理协议总结与对比"><a href="#1-5-不同代理协议总结与对比" class="headerlink" title="1.5 不同代理协议总结与对比"></a>1.5 不同代理协议总结与对比</h3><table>
+<table>
 <thead>
 <tr>
-<th align="left">协议</th>
-<th align="left">OSI 层级</th>
-<th align="left">核心动作</th>
-<th align="left">目标地址解析方</th>
-<th align="left">特征与场景</th>
+<th>协议</th>
+<th>OS 看到的行为（建立连接后）</th>
+<th>网络中传输的数据形态</th>
+<th>性能损耗点</th>
 </tr>
 </thead>
 <tbody><tr>
-<td align="left"><strong>HTTP</strong></td>
-<td align="left">应用层</td>
-<td align="left">解析 Host 头 &#x2F; CONNECT</td>
-<td align="left">代理服务器</td>
-<td align="left">传统 Web 代理，明文不安全。</td>
+<td><strong>SOCKS5</strong></td>
+<td>代理读取几十个字节的头部，发起 <code>connect</code></td>
+<td><strong>明文二进制</strong>（建立后直接透传）</td>
+<td><strong>中低</strong>（仅初始阶段有少许解析损耗）</td>
 </tr>
 <tr>
-<td align="left"><strong>SOCKS4</strong></td>
-<td align="left">会话层</td>
-<td align="left">传递 IP:Port</td>
-<td align="left"><strong>客户端</strong> (本地)</td>
-<td align="left">过时，不支持 UDP&#x2F;IPv6&#x2F;远程DNS。</td>
+<td><strong>Shadowsocks</strong></td>
+<td>代理进行大量 CPU 计算解密，发起 <code>connect</code></td>
+<td><strong>密文</strong>（高熵随机流，无特征）</td>
+<td><strong>偏高</strong>（CPU 需狂跑加解密算法）</td>
 </tr>
 <tr>
-<td align="left"><strong>SOCKS5</strong></td>
-<td align="left">会话层</td>
-<td align="left">协商 -&gt; 请求 -&gt; 转发</td>
-<td align="left"><strong>代理服务器</strong> (可选)</td>
-<td align="left">标准代理协议，功能全，但握手明文。</td>
-</tr>
-<tr>
-<td align="left"><strong>Shadowsocks</strong></td>
-<td align="left">表现层</td>
-<td align="left">加密封装 (IV+密文)</td>
-<td align="left">代理服务器</td>
-<td align="left"><strong>抗干扰&#x2F;防探测</strong>，专为穿透设计。</td>
-</tr>
-<tr>
-<td align="left"><strong>SSH</strong></td>
-<td align="left">应用&#x2F;传输层</td>
-<td align="left">封装 Channel</td>
-<td align="left">代理服务器</td>
-<td align="left"><strong>运维安全</strong>，利用现有服务器快速建立隧道。</td>
+<td><strong>SSH</strong></td>
+<td>不断复用<strong>唯一</strong>的一条 TCP 连接</td>
+<td><strong>密文</strong>（层层封装在 SSH 帧内）</td>
+<td><strong>最高</strong>（加解密 + 内部帧封装&#x2F;解封装）</td>
 </tr>
 </tbody></table>
-<h2 id="2-代理协议的底层原理"><a href="#2-代理协议的底层原理" class="headerlink" title="2. 代理协议的底层原理"></a>2. 代理协议的底层原理</h2><p>我们剥离具体的编程语言（Go, Python, C++），下沉到 <strong>操作系统内核（Kernel）</strong>、<strong>系统调用（Syscall）</strong> 以及 <strong>TCP&#x2F;IP 协议栈</strong> 的交互层面。</p>
-<p>在操作系统眼中，代理的本质是：<strong>两个 TCP 连接之间的数据搬运工</strong>。<br>即：<code>Socket_A (Client) &lt;==[用户态内存拷贝]==&gt; Socket_B (Target)</code>。</p>
-<p>无论什么代理协议，底层都遵循以下 <strong>Socket 管道模型</strong>：</p>
+<p><em>注：这也是为什么在一些性能孱弱的硬路由上，跑 SS 或 SSH 代理跑不满千兆带宽的原因——CPU 算加解密算冒烟了，而不是网卡不行。</em></p>
+<hr>
+<h2 id="3-Go-语言视角：化繁为简的“三部曲”"><a href="#3-Go-语言视角：化繁为简的“三部曲”" class="headerlink" title="3. Go 语言视角：化繁为简的“三部曲”"></a>3. Go 语言视角：化繁为简的“三部曲”</h2><p>Go 语言的 <code>net</code> 标准库和 <code>io</code> 接口，简直是为了写代理服务器而生的。在 Go 程序员眼里，所有的代理协议都可以抽象为同一个极其优雅的<strong>“三部曲”模型</strong>：</p>
 <ol>
-<li>**文件描述符 (FD)**：在 Linux&#x2F;Unix 中，每个网络连接对应一个文件描述符（File Descriptor）。</li>
-<li>**系统调用 (Syscall)**：<ul>
-<li><code>read(fd_client, buffer)</code>: 从客户端连接读取数据到用户态内存（Buffer）。</li>
-<li><code>write(fd_target, buffer)</code>: 将用户态内存的数据写入目标连接。</li>
-</ul>
-</li>
-<li><strong>上下文切换</strong>：数据从 <strong>网卡 -&gt; 内核协议栈 -&gt; 用户态程序 -&gt; 内核协议栈 -&gt; 网卡</strong>。</li>
+<li>**解包握手 (Handshake)**：问清去哪。</li>
+<li>**拨号寻路 (Dial)**：连上目标。</li>
+<li>**化身水管 (Pipe)**：双向抽水。</li>
 </ol>
-<p><strong>代理程序的本质</strong>：根据应用层协议（HTTP&#x2F;SOCKS等）解析 <code>read</code> 到的数据，决定 <code>fd_target</code> 连接到哪里，然后建立死循环进行双向 <code>read/write</code>。</p>
-<hr>
-<h3 id="2-1-HTTP-S-代理"><a href="#2-1-HTTP-S-代理" class="headerlink" title="2.1 HTTP(S) 代理"></a>2.1 HTTP(S) 代理</h3><p>HTTP 代理工作在 <strong>OSI 第 7 层（应用层）</strong>。它对数据的“理解”程度最深。</p>
-<h4 id="A-普通-HTTP-明文"><a href="#A-普通-HTTP-明文" class="headerlink" title="A. 普通 HTTP (明文)"></a>A. 普通 HTTP (明文)</h4><ul>
-<li><strong>应用层</strong>：<ul>
-<li>客户端发送：<code>GET http://www.google.com/index.html HTTP/1.1 ...</code></li>
-<li><strong>关键点</strong>：请求行中包含<strong>完整的绝对 URL</strong>。</li>
-</ul>
-</li>
-<li><strong>OS &amp; 代理逻辑</strong>：<ol>
-<li><strong>Accept</strong>: 代理进程接受 Client 连接 (<code>fd_client</code>)。</li>
-<li><strong>Read &amp; Parse</strong>: 调用 <code>read()</code> 读取数据流，<strong>在用户态解析字符串</strong>。找到 <code>Host: www.google.com</code>。</li>
-<li><strong>Resolve &amp; Connect</strong>: 代理发起 DNS 解析，调用 <code>connect(IP_Google)</code> 拿到 <code>fd_target</code>。</li>
-<li><strong>Modify &amp; Forward</strong>: 代理可能会修改 HTTP Header（例如添加 <code>X-Forwarded-For</code>），然后调用 <code>write(fd_target, modified_request)</code>。</li>
-<li><strong>Response</strong>: 读取 <code>fd_target</code> 的响应，原样 <code>write</code> 回 <code>fd_client</code>。</li>
-</ol>
-</li>
-</ul>
-<h4 id="B-HTTPS-CONNECT-隧道"><a href="#B-HTTPS-CONNECT-隧道" class="headerlink" title="B. HTTPS (CONNECT 隧道)"></a>B. HTTPS (CONNECT 隧道)</h4><ul>
-<li><strong>应用层</strong>：<ul>
-<li>客户端发送：<code>CONNECT www.google.com:443 HTTP/1.1</code></li>
-<li>这是告诉代理：“请把我的 TCP 流直接对接到这个目标，不要解析内容。”</li>
-</ul>
-</li>
-<li><strong>OS &amp; 代理逻辑</strong>：<ol>
-<li><strong>Handshake</strong>: 代理读取到 <code>CONNECT</code> 指令。</li>
-<li><strong>Dial</strong>: 代理调用 <code>connect()</code> 连接目标服务器（<code>fd_target</code>）。</li>
-<li><strong>Reply</strong>: 连接成功后，代理向 <code>fd_client</code> 写入 <code>HTTP/1.1 200 Connection Established</code>。</li>
-<li>**Pipe (关键时刻)**：<ul>
-<li>此时，代理程序<strong>停止解析任何 HTTP 协议</strong>。</li>
-<li>它进入“傻瓜模式”：<code>read(fd_client)</code> 得到的数据（即加密的 TLS 握手包），直接 <code>write(fd_target)</code>。</li>
-<li>操作系统层面看到的是：一堆无法理解的二进制数据在两个 Socket 之间流动。</li>
-</ul>
-</li>
-</ol>
-</li>
-</ul>
-<hr>
-<h3 id="2-2-SOCKS5-代理"><a href="#2-2-SOCKS5-代理" class="headerlink" title="2.2 SOCKS5 代理"></a>2.2 SOCKS5 代理</h3><p>SOCKS5 工作在 <strong>OSI 第 5 层（会话层）</strong>。它比 HTTP 更纯粹，专门为了建立 TCP&#x2F;UDP 映射而生。</p>
-<h4 id="完整流程分析"><a href="#完整流程分析" class="headerlink" title="完整流程分析"></a>完整流程分析</h4><p>假设客户端要访问 <code>1.1.1.1:80</code>。</p>
-<ol>
-<li><p><strong>协商阶段 (Negotiation)</strong></p>
-<ul>
-<li><strong>Payload</strong>: <code>0x05 (版本) 0x01 (支持1种认证) 0x00 (无认证)</code></li>
-<li><strong>OS 行为</strong>: 代理进程 <code>read</code> 到这 3 个字节，验证版本，<code>write</code> 回复 <code>0x05 0x00</code>（同意无认证）。</li>
-</ul>
-</li>
-<li><p><strong>请求阶段 (Request)</strong></p>
-<ul>
-<li><strong>Payload</strong>: <code>0x05 0x01 (Connect) 0x00 0x01 (IPv4) [1.1.1.1 (4字节)] [80 (2字节)]</code></li>
-<li><strong>OS 行为</strong>:<ul>
-<li>代理进程 <code>read</code> 这一串二进制。</li>
-<li><strong>字节序处理</strong>: 解析端口号时，需要处理大端&#x2F;小端序转换 (<code>ntohs</code>)。</li>
-<li>代理调用 <code>socket()</code> -&gt; <code>connect(1.1.1.1:80)</code> 得到 <code>fd_target</code>。</li>
-</ul>
-</li>
-</ul>
-</li>
-<li><p><strong>中继阶段 (Relay)</strong></p>
-<ul>
-<li><strong>Payload</strong>: 纯粹的应用层数据（如 HTTP 请求）。</li>
-<li><strong>原理</strong>: SOCKS5 头部只存在于连接建立之初。一旦连接建立，SOCKS5 协议头消失。</li>
-<li><strong>数据流</strong>:<br>  <code>Client TCP Payload</code> -&gt; <code>Proxy (剔除 SOCKS 头)</code> -&gt; <code>Target TCP Payload</code></li>
-<li><strong>特点</strong>: 相比 HTTP 代理，SOCKS5 代理不需要解析庞大的文本头，处理速度更快。</li>
-</ul>
-</li>
-</ol>
-<hr>
-<h3 id="2-3-Shadowsocks-SS"><a href="#2-3-Shadowsocks-SS" class="headerlink" title="2.3 Shadowsocks (SS)"></a>2.3 Shadowsocks (SS)</h3><p>Shadowsocks 工作在 <strong>OSI 第 6 层（表示层）</strong> 和 <strong>第 4 层（传输层）</strong> 之间。它的核心是对 TCP Payload 进行<strong>加密封装</strong>。</p>
-<h4 id="架构实现：SS-Local-与-SS-Server"><a href="#架构实现：SS-Local-与-SS-Server" class="headerlink" title="架构实现：SS-Local 与 SS-Server"></a>架构实现：SS-Local 与 SS-Server</h4><p>SS 必须成对使用：本地客户端 (SS-Local) 和 远程服务端 (SS-Server)。</p>
-<h4 id="流程分析"><a href="#流程分析" class="headerlink" title="流程分析"></a>流程分析</h4><p>假设浏览器发起 HTTP 请求。</p>
-<ol>
-<li><p><strong>本地阶段 (SS-Local)</strong></p>
-<ul>
-<li>浏览器发给 SS-Local 是 SOCKS5 协议。</li>
-<li>SS-Local 拿到目标地址 <code>target.com</code> 和数据 <code>GET /...</code>。</li>
-<li><strong>封装 (Encapsulation)</strong>:<ul>
-<li>SS-Local 生成随机 **IV (初始化向量)**。</li>
-<li>Payload &#x3D; <code>[Target Address]</code> + <code>[Application Data]</code>。</li>
-<li><strong>User Space Crypto</strong>: 调用加密库（如 AES-GCM, Chacha20），使用预共享密钥和 IV 对 Payload 加密。</li>
-</ul>
-</li>
-<li><strong>发送</strong>: 构造 TCP 包：<code>[IV]</code> + <code>[Encrypted Blob]</code>，发送给远端 SS-Server。</li>
-</ul>
-</li>
-<li><p><strong>互联网传输 (TCP&#x2F;IP 层面)</strong></p>
-<ul>
-<li>在网络抓包（Wireshark）看，这就是一条通往 SS-Server 的普通 TCP 连接。</li>
-<li>Payload 内容：<strong>高熵值的随机乱码</strong>。没有任何 HTTP 或 SOCKS 特征（去特征化）。</li>
-</ul>
-</li>
-<li><p><strong>远端阶段 (SS-Server)</strong></p>
-<ul>
-<li><strong>Read</strong>: SS-Server <code>read</code> 数据。前 N 个字节是 IV。</li>
-<li><strong>Decrypt</strong>: 使用 IV 初始化解密器，解密后续数据流。</li>
-<li><strong>Parse</strong>: 解密后的第一个块是目标地址 <code>target.com</code>。</li>
-<li><strong>Connect</strong>: SS-Server 调用 <code>connect(target.com)</code>。</li>
-<li><strong>Forward</strong>: 将解密后的剩余数据（<code>GET /...</code>）写入目标连接。</li>
-</ul>
-</li>
-</ol>
-<hr>
-<h3 id="2-4-SSH-Tunnel-SSH-隧道"><a href="#2-4-SSH-Tunnel-SSH-隧道" class="headerlink" title="2.4 SSH Tunnel (SSH 隧道)"></a>2.4 SSH Tunnel (SSH 隧道)</h3><p>SSH 工作在 <strong>应用层</strong>，但它构建了一个虚拟的 <strong>传输层</strong>。</p>
-<h4 id="核心机制：多路复用-Multiplexing"><a href="#核心机制：多路复用-Multiplexing" class="headerlink" title="核心机制：多路复用 (Multiplexing)"></a>核心机制：多路复用 (Multiplexing)</h4><p>SSH 协议极其复杂，它在一条 TCP 连接（Port 22）内部实现了一个微型的“操作系统”。</p>
-<ol>
-<li><p><strong>OS 层面 (Layer 4)</strong></p>
-<ul>
-<li>Client 和 Server 之间只有<strong>一条</strong>长连接：<code>ESTABLISHED tcp client:54321 -&gt; server:22</code>。</li>
-</ul>
-</li>
-<li><p><strong>协议内部 (Internal Framing)</strong></p>
-<ul>
-<li>SSH 将数据切分成 <strong>Binary Packet</strong>。</li>
-<li>每个包都有 Channel ID。</li>
-<li><strong>Payload</strong>: <code>[Length] [Padding] [Cmd: SSH_MSG_CHANNEL_DATA] [Channel_ID: 5] [Data: &quot;GET /...&quot;] [HMAC]</code></li>
-</ul>
-</li>
-</ol>
-<h4 id="代理流程-Dynamic-Forwarding-D"><a href="#代理流程-Dynamic-Forwarding-D" class="headerlink" title="代理流程 (Dynamic Forwarding -D)"></a>代理流程 (Dynamic Forwarding -D)</h4><ol>
-<li><strong>Socket 监听</strong>: SSH 客户端在本地开启 SOCKS 监听。</li>
-<li><strong>封装</strong>:<ul>
-<li>用户 App 发送请求。</li>
-<li>SSH Client 收到数据，并不发起新的 TCP 连接到远端。</li>
-<li>它将数据<strong>打包</strong>进现有的 SSH 连接中，标记为 <code>Channel X</code>。</li>
-<li><strong>加密</strong>: 整个 SSH 包被加密传输。</li>
-</ul>
-</li>
-<li><strong>解包与分发</strong>:<ul>
-<li>SSH Server 收到加密包，解密。</li>
-<li>解析出 <code>Channel X</code>。</li>
-<li>SSH Server 内部维护一张表：<code>Channel X &lt;==&gt; FD_Target_X</code>。</li>
-<li>Server 将数据写入对应的 <code>FD_Target_X</code>。</li>
-</ul>
-</li>
-</ol>
-<hr>
-<h3 id="2-5-四种协议在-OS-层的视图对比"><a href="#2-5-四种协议在-OS-层的视图对比" class="headerlink" title="2.5 四种协议在 OS 层的视图对比"></a>2.5 四种协议在 OS 层的视图对比</h3><table>
-<thead>
-<tr>
-<th align="left">协议</th>
-<th align="left">OS 看到的目标连接 (<code>connect</code>)</th>
-<th align="left">传输的数据形态</th>
-<th align="left">代理服务器的系统负载</th>
-<th align="left">核心动作</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>HTTP</strong></td>
-<td align="left">代理 <strong>解析</strong> URL 后发起连接</td>
-<td align="left"><strong>明文文本</strong> (除非 CONNECT)</td>
-<td align="left"><strong>高</strong> (字符串匹配、解析)</td>
-<td align="left">String Parsing</td>
-</tr>
-<tr>
-<td align="left"><strong>SOCKS5</strong></td>
-<td align="left">代理 <strong>读取</strong> 头部 IP 后发起连接</td>
-<td align="left"><strong>二进制</strong> (建立后透传)</td>
-<td align="left"><strong>中</strong> (二进制位操作)</td>
-<td align="left">Bit&#x2F;Byte Parsing</td>
-</tr>
-<tr>
-<td align="left"><strong>Shadowsocks</strong></td>
-<td align="left">代理 <strong>解密</strong> 头部后发起连接</td>
-<td align="left"><strong>密文</strong> (高熵随机流)</td>
-<td align="left"><strong>较高</strong> (加解密计算)</td>
-<td align="left">Decrypt -&gt; Parse</td>
-</tr>
-<tr>
-<td align="left"><strong>SSH</strong></td>
-<td align="left"><strong>单条 TCP</strong> 长连接，复用 Channel</td>
-<td align="left"><strong>密文</strong> (封装在 SSH 包内)</td>
-<td align="left"><strong>高</strong> (加解密 + 帧封装)</td>
-<td align="left">Mux&#x2F;Demux + Crypt</td>
-</tr>
-</tbody></table>
-<ul>
-<li><strong>HTTP&#x2F;SOCKS</strong>: 主要是 <strong>IO 密集型</strong>。主要时间花在 <code>read</code> &#x2F; <code>write</code> 和内核态拷贝上。</li>
-<li><strong>Shadowsocks&#x2F;SSH</strong>: 是 <strong>CPU 密集型 + IO 密集型</strong>。因为在 <code>read</code> 和 <code>write</code> 之间，用户态需要消耗 CPU 进行大量的 AES&#x2F;Chacha20 运算。这就是为什么在低端路由器上跑 SS&#x2F;SSH 速度慢的原因（CPU 算不过来）。</li>
-</ul>
-<hr>
-<h2 id="3-使用-Go-语言来解释代理协议"><a href="#3-使用-Go-语言来解释代理协议" class="headerlink" title="3.  使用 Go 语言来解释代理协议"></a>3.  使用 Go 语言来解释代理协议</h2><p> Go 的 <code>net</code> 标准库和 <code>io</code> 接口设计本质上就是对网络代理逻辑的完美抽象。</p>
-<p>从编程和通用原理的角度来看，任何代理协议（HTTP, SOCKS, Shadowsocks, SSH）在 Go 语言中都可以归纳为同一个**“三部曲”模型**：</p>
-<ol>
-<li>**解包 (Unwrap&#x2F;Handshake)**：从 <code>net.Conn</code> 中读取元数据（要去哪里？）。</li>
-<li>**拨号 (Dial)**：根据元数据建立到目标的连接 <code>net.Conn</code>。</li>
-<li>**转发 (Relay&#x2F;Pipe)**：在两个 <code>net.Conn</code> 之间建立双向数据泵。</li>
-</ol>
-<hr>
-<h3 id="3-1-核心抽象：一切皆-net-Conn"><a href="#3-1-核心抽象：一切皆-net-Conn" class="headerlink" title="3.1 核心抽象：一切皆 net.Conn"></a>3.1 核心抽象：一切皆 <code>net.Conn</code></h3><p>在 Go 语言层面，代理协议不关心底层的物理介质。无论是 TCP、UDP、还是加密的 TLS、SSH Channel，它们最终都实现了同一个接口：</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Go 标准库的核心接口</span></span><br><span class="line"><span class="keyword">type</span> Conn <span class="keyword">interface</span> &#123;</span><br><span class="line">    Read(b []<span class="type">byte</span>) (n <span class="type">int</span>, err <span class="type">error</span>)  <span class="comment">// 读数据</span></span><br><span class="line">    Write(b []<span class="type">byte</span>) (n <span class="type">int</span>, err <span class="type">error</span>) <span class="comment">// 写数据</span></span><br><span class="line">    Close() <span class="type">error</span>                      <span class="comment">// 关闭连接</span></span><br><span class="line">    <span class="comment">// ... 其他超时设置</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>代理的本质原理</strong>：就是在一个实现了 <code>Read</code> 的对象和一个实现了 <code>Write</code> 的对象之间搬运字节。</p>
-<hr>
-<h3 id="3-2-第一阶段：握手与协商-The-Handshake"><a href="#3-2-第一阶段：握手与协商-The-Handshake" class="headerlink" title="3.2 第一阶段：握手与协商 (The Handshake)"></a>3.2 第一阶段：握手与协商 (The Handshake)</h3><p>这是区分不同协议（HTTP vs SOCKS5）的关键步骤。<br><strong>原理</strong>：从客户端连接（<code>Inbound Conn</code>）中读取前几个字节，分析出目标地址。</p>
-<p><strong>通用代码模型：</strong></p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 定义一个通用的握手函数签名</span></span><br><span class="line"><span class="keyword">type</span> HandshakeFunc <span class="function"><span class="keyword">func</span><span class="params">(conn net.Conn)</span></span> (targetAddr <span class="type">string</span>, err <span class="type">error</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment">// 示例：模拟一个极简的自定义代理协议</span></span><br><span class="line"><span class="comment">// 协议格式：[4字节长度][目标地址字符串]...后续数据</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">SimpleHandshake</span><span class="params">(conn net.Conn)</span></span> (<span class="type">string</span>, <span class="type">error</span>) &#123;</span><br><span class="line">    <span class="comment">// 1. 读取长度</span></span><br><span class="line">    lenBuf := <span class="built_in">make</span>([]<span class="type">byte</span>, <span class="number">4</span>)</span><br><span class="line">    <span class="keyword">if</span> _, err := io.ReadFull(conn, lenBuf); err != <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;&quot;</span>, err</span><br><span class="line">    &#125;</span><br><span class="line">    addrLen := binary.BigEndian.Uint32(lenBuf)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 2. 读取目标地址</span></span><br><span class="line">    addrBuf := <span class="built_in">make</span>([]<span class="type">byte</span>, addrLen)</span><br><span class="line">    <span class="keyword">if</span> _, err := io.ReadFull(conn, addrBuf); err != <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;&quot;</span>, err</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 返回解析出的目标地址，比如 &quot;google.com:80&quot;</span></span><br><span class="line">    <span class="keyword">return</span> <span class="type">string</span>(addrBuf), <span class="literal">nil</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li><strong>HTTP 原理</strong>：这里的逻辑会变成 <code>bufio.NewReader(conn).ReadString(&#39;\n&#39;)</code> 去解析 <code>CONNECT host:port</code>。</li>
-<li><strong>SOCKS5 原理</strong>：这里的逻辑会变成读取 <code>0x05</code> 版本号和后续的 IP&#x2F;Port 字节序列。</li>
-<li><strong>Shadowsocks 原理</strong>：这里的逻辑会变成 <code>cipher.Decrypt(conn)</code> 先解密，再读取地址。</li>
-</ul>
-<hr>
-<h3 id="3-3-第二阶段：连接目标-The-Dial"><a href="#3-3-第二阶段：连接目标-The-Dial" class="headerlink" title="3.3 第二阶段：连接目标 (The Dial)"></a>3.3 第二阶段：连接目标 (The Dial)</h3><p>拿到目标地址后，代理服务器需要代表客户端去连接真正的目标。</p>
-<p><strong>通用代码模型：</strong></p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">DialTarget</span><span class="params">(targetAddr <span class="type">string</span>)</span></span> (net.Conn, <span class="type">error</span>) &#123;</span><br><span class="line">    <span class="comment">// 这里的 net.Dial 是最基础的 TCP 连接</span></span><br><span class="line">    <span class="keyword">return</span> net.Dial(<span class="string">&quot;tcp&quot;</span>, targetAddr)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>我们来看看这个通用模型的极简代码骨架：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">handleConnection</span><span class="params">(inConn net.Conn)</span></span> &#123;</span><br><span class="line">    <span class="keyword">defer</span> inConn.Close()</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 【第一步：解包握手】不同的协议在这里各显神通</span></span><br><span class="line">    <span class="comment">// 比如 SOCKS5 就在这里读取 0x05 等状态码，SS 就在这里解密 IV</span></span><br><span class="line">    targetAddr, err := HandshakeProtocol(inConn) </span><br><span class="line">    <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 【第二步：拨号寻路】去连接真正的目标服务器</span></span><br><span class="line">    outConn, err := net.Dial(<span class="string">&quot;tcp&quot;</span>, targetAddr)</span><br><span class="line">    <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">defer</span> outConn.Close()</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 【第三步：化身水管】终极双向数据泵</span></span><br><span class="line">    <span class="comment">// 此时代理服务器彻底失去灵魂，变成无情的搬运工</span></span><br><span class="line">    Transport(inConn, outConn)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 通用数据搬运核心机制</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">Transport</span><span class="params">(a, b net.Conn)</span></span> &#123;</span><br><span class="line">    <span class="comment">// 利用 channel 检测任何一端断开</span></span><br><span class="line">    errChan := <span class="built_in">make</span>(<span class="keyword">chan</span> <span class="type">error</span>, <span class="number">2</span>)</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 协程 1：把客户端的水抽给服务端 (底层是极致优化的零拷贝或内存拷贝)</span></span><br><span class="line">    <span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">        _, err := io.Copy(b, a) </span><br><span class="line">        errChan &lt;- err</span><br><span class="line">    &#125;()</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 协程 2：把服务端的水抽给客户端</span></span><br><span class="line">    <span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">        _, err := io.Copy(a, b) </span><br><span class="line">        errChan &lt;- err</span><br><span class="line">    &#125;()</span><br><span class="line">    </span><br><span class="line">    &lt;-errChan <span class="comment">// 阻塞，直到其中一根管子爆了/关了</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
 
 <hr>
-<h3 id="3-4-第三阶段：双向数据泵-The-Data-Pipe"><a href="#3-4-第三阶段：双向数据泵-The-Data-Pipe" class="headerlink" title="3.4 第三阶段：双向数据泵 (The Data Pipe)"></a>3.4 第三阶段：双向数据泵 (The Data Pipe)</h3><p>这是所有代理协议最终的归宿。一旦握手完成，连接建立，代理服务器就退化成一条“管道”。它不再解析数据，只是无脑转发。</p>
-<p><strong>Go 的高并发特性在这里体现得淋漓尽致</strong>。我们需要两个 Goroutine 来处理双向流量。</p>
-<p><strong>通用代码模型：</strong></p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">Transport</span><span class="params">(localConn, remoteConn net.Conn)</span></span> &#123;</span><br><span class="line">    <span class="comment">// 关闭连接的辅助函数，确保任何一方断开，另一方也关闭</span></span><br><span class="line">    <span class="keyword">defer</span> localConn.Close()</span><br><span class="line">    <span class="keyword">defer</span> remoteConn.Close()</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 信号通道，用来检测谁先断开</span></span><br><span class="line">    errChan := <span class="built_in">make</span>(<span class="keyword">chan</span> <span class="type">error</span>, <span class="number">2</span>)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 上行数据：Local -&gt; Remote</span></span><br><span class="line">    <span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">        <span class="comment">// io.Copy 是内核级优化的，它不断从 src 读取并写入 dst</span></span><br><span class="line">        _, err := io.Copy(remoteConn, localConn)</span><br><span class="line">        errChan &lt;- err</span><br><span class="line">    &#125;()</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 下行数据：Remote -&gt; Local</span></span><br><span class="line">    <span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">        _, err := io.Copy(localConn, remoteConn)</span><br><span class="line">        errChan &lt;- err</span><br><span class="line">    &#125;()</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 阻塞等待，直到任意一方连接中断</span></span><br><span class="line">    &lt;-errChan </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h2 id="4-终极实战：GOST-的“套娃”艺术"><a href="#4-终极实战：GOST-的“套娃”艺术" class="headerlink" title="4. 终极实战：GOST 的“套娃”艺术"></a>4. 终极实战：GOST 的“套娃”艺术</h2><p>明白了上面的三部曲，我们再来看著名的代理界“瑞士军刀”——**GOST (GO Simple Tunnel)**。</p>
+<p>GOST 最牛逼的地方在于它的<strong>责任链与接口抽象</strong>。在 GOST 源码里，TCP、TLS、SOCKS5、Shadowsocks 都不再是孤立的协议，而是可以互相叠加的**“洋葱皮” (Wrapper)**。</p>
+<h3 id="4-1-SOCKS5-的状态机实现"><a href="#4-1-SOCKS5-的状态机实现" class="headerlink" title="4.1 SOCKS5 的状态机实现"></a>4.1 SOCKS5 的状态机实现</h3><p>在 GOST (路径：<code>x/handler/socks/v5/handler.go</code>) 中，SOCKS5 严格遵循了状态机：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(h *socks5Handler)</span></span> Handle(ctx context.Context, conn net.Conn) &#123;</span><br><span class="line">    <span class="comment">// 1. 协商认证：看客官选哪种认证方式</span></span><br><span class="line">    methods := readMethods(conn) </span><br><span class="line">    conn.Write([]<span class="type">byte</span>&#123;<span class="number">0x05</span>, selectedMethod&#125;)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 2. 如果选了账密，就校验密码</span></span><br><span class="line">    <span class="keyword">if</span> selectedMethod == <span class="number">0x02</span> &#123; checkUserPass(conn) &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 3. 读取目标地址 (解析到底是 IPv4 还是域名)</span></span><br><span class="line">    req := gosocks5.ReadRequest(conn)</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 4. 拨号并回复客户端“管道已就绪”</span></span><br><span class="line">    outConn, _ := h.router.Route(ctx, req.Addr.String()).Dial(ctx)</span><br><span class="line">    gosocks5.NewReply(gosocks5.Succeeded, ...).Write(conn)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 5. 丢进我们的通用水管</span></span><br><span class="line">    transport.Transport(conn, outConn)</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
 
-<hr>
-<h3 id="3-5-完整组装：通用代理服务器实现"><a href="#3-5-完整组装：通用代理服务器实现" class="headerlink" title="3.5 完整组装：通用代理服务器实现"></a>3.5 完整组装：通用代理服务器实现</h3><p>把上面三个部分拼起来，就是一个极简的代理服务器核心代码：</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> main</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> (</span><br><span class="line">    <span class="string">&quot;io&quot;</span></span><br><span class="line">    <span class="string">&quot;log&quot;</span></span><br><span class="line">    <span class="string">&quot;net&quot;</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="comment">// 1. 监听 (Listen)</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">    listener, _ := net.Listen(<span class="string">&quot;tcp&quot;</span>, <span class="string">&quot;:8080&quot;</span>)</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">for</span> &#123;</span><br><span class="line">        <span class="comment">// 接受新连接</span></span><br><span class="line">        conn, _ := listener.Accept()</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// 2. 为每个连接启动一个 Goroutine (Per-Connection Model)</span></span><br><span class="line">        <span class="keyword">go</span> handleConnection(conn)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">handleConnection</span><span class="params">(inConn net.Conn)</span></span> &#123;</span><br><span class="line">    <span class="keyword">defer</span> inConn.Close()</span><br><span class="line"></span><br><span class="line">    <span class="comment">// --- 步骤 A: 协议握手 (Handshake) ---</span></span><br><span class="line">    <span class="comment">// 假设我们使用 HTTP 代理协议，这里需要解析 HTTP 头</span></span><br><span class="line">    <span class="comment">// 为了演示简单，这里假设已解析出目标</span></span><br><span class="line">    targetAddr := <span class="string">&quot;google.com:80&quot;</span> </span><br><span class="line">    </span><br><span class="line">    <span class="comment">// --- 步骤 B: 建立后端连接 (Dial) ---</span></span><br><span class="line">    outConn, err := net.Dial(<span class="string">&quot;tcp&quot;</span>, targetAddr)</span><br><span class="line">    <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">        log.Println(<span class="string">&quot;连接目标失败:&quot;</span>, err)</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">defer</span> outConn.Close()</span><br><span class="line"></span><br><span class="line">    <span class="comment">// --- 步骤 C: 建立数据管道 (Pipe) ---</span></span><br><span class="line">    <span class="comment">// 调用上面定义的通用 Transport</span></span><br><span class="line">    Transport(inConn, outConn)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 通用数据搬运工</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">Transport</span><span class="params">(a, b net.Conn)</span></span> &#123;</span><br><span class="line">    done := <span class="built_in">make</span>(<span class="keyword">chan</span> <span class="keyword">struct</span>&#123;&#125;)</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">        io.Copy(b, a) <span class="comment">// a -&gt; b</span></span><br><span class="line">        done &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br><span class="line">    &#125;()</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">        io.Copy(a, b) <span class="comment">// b -&gt; a</span></span><br><span class="line">        done &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br><span class="line">    &#125;()</span><br><span class="line">    </span><br><span class="line">    &lt;-done</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="4-2-Shadowsocks-的“流式伪装”"><a href="#4-2-Shadowsocks-的“流式伪装”" class="headerlink" title="4.2 Shadowsocks 的“流式伪装”"></a>4.2 Shadowsocks 的“流式伪装”</h3><p>GOST 处理 SS 的思路极其飘逸。它不去搞复杂的握手，而是直接把底层的 <code>net.Conn</code> <strong>套上一层具有解密功能的壳</strong>。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(h *shadowsocksHandler)</span></span> Handle(ctx context.Context, conn net.Conn) &#123;</span><br><span class="line">    <span class="comment">// 神仙操作：把普通连接包装成“自带解密的连接”</span></span><br><span class="line">    <span class="comment">// 此刻还没开始读数据，只是给这根管子加了个“解密滤镜”</span></span><br><span class="line">    cryptoConn := shadowaead.NewConn(conn, h.cipher)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 当你尝试 read 时，底层会自动吸入 IV，校验密码，并吐出解密后的目标地址</span></span><br><span class="line">    targetAddr := readTargetAddress(cryptoConn) </span><br><span class="line"></span><br><span class="line">    <span class="comment">// 连接目标</span></span><br><span class="line">    outConn, _ := h.router.Route(ctx, targetAddr).Dial(ctx)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 丢进水管。注意！这里传的是 cryptoConn。</span></span><br><span class="line">    <span class="comment">// 之后目标服务器回传的数据，在经过 cryptoConn.Write() 时，会自动被加密再发给客户端！</span></span><br><span class="line">    transport.Transport(cryptoConn, outConn)</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
 
-<h3 id="总结：Go-语言视角的代理原理"><a href="#总结：Go-语言视角的代理原理" class="headerlink" title="总结：Go 语言视角的代理原理"></a>总结：Go 语言视角的代理原理</h3><p>从 Go 代码的角度看，代理协议的原理可以归纳为以下公式：</p>
-<p>$$Proxy &#x3D; \text{Listener} + \text{Parser (Handshake)} + \text{Dialer} + \text{io.Copy}$$</p>
-<ol>
-<li>**多态性 (Polymorphism)**：Go 的 <code>net.Conn</code> 接口屏蔽了 TLS、TCP、KCP 的区别。只要实现了 <code>Read/Write</code>，就能被代理。Shadowsocks 的本质就是写了一个 <code>CryptoConn</code> 结构体，在 <code>Read</code> 里做解密，在 <code>Write</code> 里做加密，然后传给 <code>io.Copy</code>。</li>
-<li>**并发性 (Concurrency)**：使用 Goroutine (<code>go func</code>) 极其廉价地处理成千上万个并发连接，每个连接包含一对 <code>io.Copy</code>。</li>
-<li>**组合性 (Composability)**：<ul>
-<li>HTTP 代理 &#x3D; HTTP Parser + TCP Dialer + Pipe</li>
-<li>SOCKS5 代理 &#x3D; SOCKS5 Parser + TCP Dialer + Pipe</li>
-<li>GOST 多级代理 &#x3D; Protocol A Parser + Protocol B Client (Dialer) + Pipe</li>
-</ul>
-</li>
-</ol>
-<hr>
-<h2 id="4-GOST-介绍"><a href="#4-GOST-介绍" class="headerlink" title="4. GOST 介绍"></a>4. GOST 介绍</h2><p>GOST (GO Simple Tunnel) 是一款用 Go 语言（Golang）编写的安全隧道工具。因其极其丰富的功能、灵活的配置和强大的多级代理能力，被称为代理工具界的“瑞士军刀”。</p>
-<p>GOST 目前主要有两个版本：经典的 v2 和重构后的 v3。</p>
-<p>GOST v3 的代码架构非常优美，它完全基于 <strong>Interface（接口）</strong> 和 <strong>Chain of Responsibility（责任链）</strong> 模式。</p>
-<p> GOST 的核心抽象：</p>
-<ol>
-<li>**Handler (服务端视角)**：负责握手、协商，把 <code>net.Conn</code> 解析成目标地址。</li>
-<li>**Connector (客户端视角)**：负责把请求封装成特定协议格式，发起连接。</li>
-</ol>
-<h3 id="4-1-HTTP-HTTPS-Proxy-实现"><a href="#4-1-HTTP-HTTPS-Proxy-实现" class="headerlink" title="4.1 HTTP&#x2F;HTTPS Proxy 实现"></a>4.1 HTTP&#x2F;HTTPS Proxy 实现</h3><p>GOST 利用了 Go 标准库 <code>net/http</code> 的强大能力，但为了实现隧道功能，它使用了 <code>Hijack</code> 技术。</p>
-<h4 id="代码位置"><a href="#代码位置" class="headerlink" title="代码位置"></a>代码位置</h4><ul>
-<li><code>x/handler/http/handler.go</code></li>
-</ul>
-<h4 id="服务端-Handler-实现逻辑"><a href="#服务端-Handler-实现逻辑" class="headerlink" title="服务端 (Handler) 实现逻辑"></a>服务端 (Handler) 实现逻辑</h4><p>GOST 的 HTTP Handler 实际上实现了一个 <code>http.Handler</code> 接口。</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(h *httpHandler)</span></span> Handle(ctx context.Context, conn net.Conn) &#123;</span><br><span class="line">    <span class="comment">// 1. 使用 http.ReadRequest 读取头部</span></span><br><span class="line">    req, err := http.ReadRequest(bufio.NewReader(conn))</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 2. 区分 CONNECT 方法还是普通方法</span></span><br><span class="line">    <span class="keyword">if</span> req.Method == http.MethodConnect &#123;</span><br><span class="line">        h.handleConnect(ctx, conn, req) <span class="comment">// 处理 HTTPS 隧道</span></span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        h.handleRequest(ctx, conn, req) <span class="comment">// 处理普通 HTTP 代理</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="4-3-SSH-Tunnel-的多路解包"><a href="#4-3-SSH-Tunnel-的多路解包" class="headerlink" title="4.3 SSH Tunnel 的多路解包"></a>4.3 SSH Tunnel 的多路解包</h3><p>SSH 处理起来最复杂，因为它是一个连接管无数个请求。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(h *sshHandler)</span></span> Handle(ctx context.Context, conn net.Conn) &#123;</span><br><span class="line">    <span class="comment">// 建立 SSH 父连接</span></span><br><span class="line">    sshConn, chans, reqs, _ := ssh.NewServerConn(conn, h.config)</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 监听虚拟车道 (Channels) 的开启请求</span></span><br><span class="line">    <span class="keyword">for</span> newChannel := <span class="keyword">range</span> chans &#123;</span><br><span class="line">        <span class="comment">// 只接客 direct-tcpip (即端口代理) 的车道</span></span><br><span class="line">        <span class="keyword">if</span> newChannel.ChannelType() != <span class="string">&quot;direct-tcpip&quot;</span> &#123; <span class="keyword">continue</span> &#125;</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// 接受这根车道</span></span><br><span class="line">        channel, _, _ := newChannel.Accept()</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// 解析目的地</span></span><br><span class="line">        targetAddr := parseDirectTCPIPPayload(newChannel.ExtraData())</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 丢入后台协程，为这条虚拟车道单独建立水管</span></span><br><span class="line">        <span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">            outConn, _ := h.router.Dial(targetAddr)</span><br><span class="line">            transport.Transport(channel, outConn) <span class="comment">// channel 本身就实现了 io.ReadWriter!</span></span><br><span class="line">        &#125;()</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
 
-<p><strong>关键技术点：Hijack (劫持)</strong><br>在 <code>handleConnect</code> 中，一旦回复了 <code>200 OK</code>，GOST 必须脱离 HTTP 协议栈，接管底层的 TCP 连接：</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(h *httpHandler)</span></span> handleConnect(ctx context.Context, conn net.Conn, req *http.Request) &#123;</span><br><span class="line">    <span class="comment">// ... 权限校验 ...</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">// 回复客户端：隧道已建立</span></span><br><span class="line">    conn.Write([]<span class="type">byte</span>(<span class="string">&quot;HTTP/1.1 200 Connection established\r\n\r\n&quot;</span>))</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 3. 路由与连接下一跳</span></span><br><span class="line">    <span class="comment">// 这里的 router.Route 会返回下一跳的 connector</span></span><br><span class="line">    route := h.router.Route(ctx, req.Host) </span><br><span class="line">    cc, err := route.Dial(ctx) <span class="comment">// 建立到目标的连接</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">// 4. 进入 Transport (双向拷贝)</span></span><br><span class="line">    transport.Transport(conn, cc)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<hr>
-<h3 id="4-2-SOCKS5-实现"><a href="#4-2-SOCKS5-实现" class="headerlink" title="4.2 SOCKS5 实现"></a>4.2 SOCKS5 实现</h3><p>SOCKS5 是二进制协议，GOST 使用了 <code>github.com/go-gost/gosocks5</code> 库（或类似的内部实现）来处理二进制流的解析。</p>
-<h4 id="代码位置-1"><a href="#代码位置-1" class="headerlink" title="代码位置"></a>代码位置</h4><ul>
-<li><code>x/handler/socks/v5/handler.go</code></li>
-</ul>
-<h4 id="服务端-Handler-实现逻辑-1"><a href="#服务端-Handler-实现逻辑-1" class="headerlink" title="服务端 (Handler) 实现逻辑"></a>服务端 (Handler) 实现逻辑</h4><p>SOCKS5 的处理过程是一个典型的<strong>状态机</strong>。</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(h *socks5Handler)</span></span> Handle(ctx context.Context, conn net.Conn) &#123;</span><br><span class="line">    <span class="comment">// 1. 协商阶段 (Negotiation)</span></span><br><span class="line">    <span class="comment">// 读取客户端支持的认证方法列表</span></span><br><span class="line">    methods := readMethods(conn) </span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 选择一种方法（如 无认证 0x00 或 用户密码 0x02）并回复</span></span><br><span class="line">    conn.Write([]<span class="type">byte</span>&#123;<span class="number">0x05</span>, selectedMethod&#125;)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 2. 认证阶段 (如果需要)</span></span><br><span class="line">    <span class="keyword">if</span> selectedMethod == <span class="number">0x02</span> &#123;</span><br><span class="line">        <span class="comment">// 读取用户名密码并校验</span></span><br><span class="line">        checkUserPass(conn)</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 3. 请求阶段 (Request)</span></span><br><span class="line">    <span class="comment">// 解析 CMD (Connect/Bind), ATYP (IPv4/Domain/IPv6), DST.ADDR, DST.PORT</span></span><br><span class="line">    req := gosocks5.ReadRequest(conn)</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 4. 路由与连接</span></span><br><span class="line">    route := h.router.Route(ctx, req.Addr.String())</span><br><span class="line">    outConn, _ := route.Dial(ctx)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 5. 回复客户端 (Reply)</span></span><br><span class="line">    <span class="comment">// 告诉客户端：连接成功，你可以发数据了</span></span><br><span class="line">    gosocks5.NewReply(gosocks5.Succeeded, ...).Write(conn)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 6. 双向转发</span></span><br><span class="line">    transport.Transport(conn, outConn)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>代码层面的难点</strong>：<br>SOCKS5 的 <code>UDP Associate</code> 需要在一个 TCP 连接之外，动态开启一个 UDP 监听端口，并把这个端口通过 TCP 通道告诉客户端。GOST 为此专门维护了一个 <code>UDPMap</code> 来管理这些临时的 UDP 会话。</p>
-<hr>
-<h3 id="4-3-Shadowsocks-实现"><a href="#4-3-Shadowsocks-实现" class="headerlink" title="4.3. Shadowsocks 实现"></a>4.3. Shadowsocks 实现</h3><p>Shadowsocks 在代码层面是一个 **Traffic Wrapper (流量包装器)**。它通常不通过复杂的握手来确定目标，而是依赖解密后的头部。</p>
-<h4 id="代码位置-2"><a href="#代码位置-2" class="headerlink" title="代码位置"></a>代码位置</h4><ul>
-<li><code>x/handler/shadowsocks/handler.go</code> (服务端)</li>
-<li><code>x/connector/shadowsocks/connector.go</code> (客户端)</li>
-</ul>
-<h4 id="核心：Cipher-Stream-流式加密"><a href="#核心：Cipher-Stream-流式加密" class="headerlink" title="核心：Cipher Stream (流式加密)"></a>核心：Cipher Stream (流式加密)</h4><p>GOST 依赖 <code>go-shadowsocks2</code> 提供的 <code>shadowaead</code> 包。</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 服务端 Handler</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(h *shadowsocksHandler)</span></span> Handle(ctx context.Context, conn net.Conn) &#123;</span><br><span class="line">    <span class="comment">// 1. 包装连接：将普通 TCP 连接包装为带解密功能的连接</span></span><br><span class="line">    <span class="comment">// 这时候还没有读取数据，只是定义了 Read/Write 的行为</span></span><br><span class="line">    <span class="comment">// cipher 是预先根据密码初始化的 AEAD 密码器</span></span><br><span class="line">    cryptoConn := shadowaead.NewConn(conn, h.cipher)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 2. 读取目标地址</span></span><br><span class="line">    <span class="comment">// 在调用 Read 时，底层会自动读取 IV，校验 Tag，解密 Payload</span></span><br><span class="line">    <span class="comment">// SS 协议规定：解密后的流，前几个字节是目标地址</span></span><br><span class="line">    targetAddr := readTargetAddress(cryptoConn) </span><br><span class="line"></span><br><span class="line">    <span class="comment">// 3. 连接目标</span></span><br><span class="line">    route := h.router.Route(ctx, targetAddr)</span><br><span class="line">    outConn, _ := route.Dial(ctx)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 4. 转发</span></span><br><span class="line">    <span class="comment">// 注意：这里传入的是 cryptoConn。</span></span><br><span class="line">    <span class="comment">// 当 transport 调用 cryptoConn.Write() 时，数据会被自动加密发送给客户端。</span></span><br><span class="line">    transport.Transport(cryptoConn, outConn)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>客户端 (Connector) 也是同理</strong>：<br>在 <code>Dial</code> 的时候，把建立好的 TCP 连接 wrap 一层 <code>shadowaead.NewConn</code>，之后的 <code>Write</code> 操作就会自动加上 IV 和加密数据。</p>
-<hr>
-<h3 id="4-4-SSH-Tunnel-实现"><a href="#4-4-SSH-Tunnel-实现" class="headerlink" title="4.4 SSH Tunnel 实现"></a>4.4 SSH Tunnel 实现</h3><p>SSH 的实现最为复杂，因为 Go 的 <code>golang.org/x/crypto/ssh</code> 库封装了极多的细节。GOST 在这里主要处理 <strong>Channel (信道)</strong> 的复用。</p>
-<h4 id="代码位置-3"><a href="#代码位置-3" class="headerlink" title="代码位置"></a>代码位置</h4><ul>
-<li><code>x/handler/sshtunnel/handler.go</code></li>
-</ul>
-<h4 id="服务端逻辑"><a href="#服务端逻辑" class="headerlink" title="服务端逻辑"></a>服务端逻辑</h4><p>当 GOST 作为 SSH 代理服务器时，它启动一个 SSH Server，等待客户端发起 <code>direct-tcpip</code> 类型的 Channel 请求。</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(h *sshHandler)</span></span> Handle(ctx context.Context, conn net.Conn) &#123;</span><br><span class="line">    <span class="comment">// 1. SSH 握手 (交换版本，密钥协商，认证)</span></span><br><span class="line">    sshConn, chans, reqs, err := ssh.NewServerConn(conn, h.config)</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 2. 处理全局请求 (如 keepalive)</span></span><br><span class="line">    <span class="keyword">go</span> ssh.DiscardRequests(reqs)</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 3. 处理 Channel (核心逻辑)</span></span><br><span class="line">    <span class="comment">// SSH 是多路复用的，一个连接可能有多个 newChannel 请求</span></span><br><span class="line">    <span class="keyword">for</span> newChannel := <span class="keyword">range</span> chans &#123;</span><br><span class="line">        <span class="comment">// 我们只接受 direct-tcpip 类型的 channel (即端口转发/代理请求)</span></span><br><span class="line">        <span class="keyword">if</span> newChannel.ChannelType() != <span class="string">&quot;direct-tcpip&quot;</span> &#123;</span><br><span class="line">            newChannel.Reject(...)</span><br><span class="line">            <span class="keyword">continue</span></span><br><span class="line">        &#125;</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// 4. 接受 Channel</span></span><br><span class="line">        channel, requests, _ := newChannel.Accept()</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// 解析 Payload 获取目标地址 (SSH 协议标准)</span></span><br><span class="line">        <span class="comment">// Payload 结构: [destIP string] [destPort uint32] ...</span></span><br><span class="line">        targetAddr := parseDirectTCPIPPayload(newChannel.ExtraData())</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 5. 为这个 Channel 建立实际的连接</span></span><br><span class="line">        <span class="keyword">go</span> h.handleChannel(ctx, channel, targetAddr) </span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(h *sshHandler)</span></span> handleChannel(ctx, channel, target) &#123;</span><br><span class="line">    <span class="comment">// 这里的 channel 实现了 io.ReadWriter</span></span><br><span class="line">    outConn, _ := h.router.Dial(target)</span><br><span class="line">    transport.Transport(channel, outConn)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>代码层面的区别</strong>：<br>HTTP&#x2F;SOCKS&#x2F;SS 通常是一个连接对应一个 Handler Goroutine。<br>但 SSH 是 <strong>一个连接对应多个 Channel Goroutine</strong>。主循环负责 Accept Channel，每个 Channel 独立进行数据转发。</p>
-<hr>
-<h3 id="4-5-GOST-的抽象之美"><a href="#4-5-GOST-的抽象之美" class="headerlink" title="4.5 GOST 的抽象之美"></a>4.5 GOST 的抽象之美</h3><p>GOST 能够在一套代码里支持这么多协议，核心在于它把所有协议都视作对 <code>net.Conn</code> 的一种 <strong>装饰 (Decoration)</strong> 或 **适配 (Adaptation)**。</p>
-<p>从代码架构图来看：</p>
-<ol>
-<li><strong>Raw TCP</strong>: <code>net.Conn</code> (底层的字节流)</li>
-<li><strong>Wrap Layer</strong>:<ul>
-<li><strong>SS</strong>: <code>NewShadowsocksConn(rawConn)</code> -&gt; 自动加解密。</li>
-<li><strong>TLS</strong>: <code>tls.Server(rawConn)</code> -&gt; 自动处理 SSL。</li>
-</ul>
-</li>
-<li><strong>Handshake Layer (Handler)</strong>:<ul>
-<li><strong>HTTP</strong>: <code>http.ReadRequest</code> -&gt; 拿到 Host。</li>
-<li><strong>SOCKS</strong>: <code>ReadMethods/ReadRequest</code> -&gt; 拿到 IP。</li>
-</ul>
-</li>
-<li><strong>Integration</strong>:<ul>
-<li>一旦拿到目标地址 <code>target</code> 和剥离了协议头的流 <code>stream</code>，就丢给通用的 <code>transport.Transport(stream, targetConn)</code>。</li>
-</ul>
-</li>
-</ol>
-<p>这就是为什么 GOST 可以轻易实现 <code>SOCKS5 over TLS</code> 或者 <code>Shadowsocks over SSH</code> —— 只是把不同的 Wrapper 像洋葱一样层层包裹起来而已。</p>
+<h3 id="总结：万物皆可-Proxy"><a href="#总结：万物皆可-Proxy" class="headerlink" title="总结：万物皆可 Proxy"></a>总结：万物皆可 Proxy</h3><p>你看，无论是 SOCKS5 枯燥的状态机，Shadowsocks 巧妙的流式加密罩，还是 SSH 庞大的多路复用车道，在优秀的架构设计面前，最终都会殊途同归，变成一对 <code>io.Copy</code>。这就是网络编程的暴力与美学。</p>
 
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://gengzhikui.github.io/blog/2026/02/05/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E4%BB%A3%E7%90%86%E5%8D%8F%E8%AE%AE%E7%9A%84%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0/" data-id="cmll0riym0002ga7o0k3tgwuk" data-title="深入理解代理协议的原理和实现" class="article-share-link"><span class="fa fa-share">Teilen</span></a>
+      <a data-url="https://gengzhikui.github.io/blog/2026/02/05/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E4%BB%A3%E7%90%86%E5%8D%8F%E8%AE%AE%E7%9A%84%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0/" data-id="cmll2aayt000cck7oguzt6j5z" data-title="深入浅出：揭秘代理协议的底层原理与代码实现" class="article-share-link"><span class="fa fa-share">Teilen</span></a>
       
       
       
@@ -648,7 +290,7 @@
           </li>
         
           <li>
-            <a href="/blog/2026/02/05/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E4%BB%A3%E7%90%86%E5%8D%8F%E8%AE%AE%E7%9A%84%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0/">深入理解代理协议的原理和实现</a>
+            <a href="/blog/2026/02/05/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E4%BB%A3%E7%90%86%E5%8D%8F%E8%AE%AE%E7%9A%84%E5%8E%9F%E7%90%86%E5%92%8C%E5%AE%9E%E7%8E%B0/">深入浅出：揭秘代理协议的底层原理与代码实现</a>
           </li>
         
           <li>
